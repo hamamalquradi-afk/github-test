@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>اختبار أقسام الكلام | Parts of Speech</title>
+<style>
+*{box-sizing:border-box}
+:root{
+ --bg:#f7f9fc;--card:#fff;--ink:#172033;--muted:#68758a;--line:#e7ebf2;
+ --primary:#6c5ce7;--primary2:#8b7cf6;--good:#15803d;--goodBg:#ecfdf3;
+ --bad:#c62828;--badBg:#fff1f2;--shadow:0 18px 50px rgba(35,43,70,.09)
+}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;background:
+radial-gradient(circle at top left,#eeeaff 0,transparent 34%),
+radial-gradient(circle at top right,#eaf7ff 0,transparent 30%),var(--bg);color:var(--ink)}
+.app{width:min(820px,100%);margin:auto;padding:16px 14px 42px}
+.header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 16px}
+.brand{display:flex;align-items:center;gap:10px}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,var(--primary),#2f80ed);color:#fff;display:grid;place-items:center;font-size:22px;box-shadow:0 10px 24px #6c5ce733}
+.brand b{font-size:18px}.small{font-size:12px;color:var(--muted)}
+.card{background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow)}
+.start{padding:30px 22px;text-align:center;margin-top:24px}
+.hero{font-size:56px}.start h1{font-size:clamp(28px,7vw,44px);margin:10px 0}.start p{color:var(--muted);line-height:1.9;max-width:650px;margin:auto}
+.chips{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:20px 0}
+.chip{background:#f4f1ff;color:#5143b7;border:1px solid #e5ddff;padding:8px 12px;border-radius:999px;font-size:13px;font-weight:700}
+.btn{border:0;border-radius:15px;padding:14px 20px;font-size:16px;font-weight:800;cursor:pointer}
+.primary{color:#fff;background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:0 10px 24px #6c5ce733}
+.secondary{background:#f3f5f9;color:#2f3a4d}
+.quiz{display:none}.top{padding:14px 16px;margin-bottom:12px;position:sticky;top:8px;z-index:5}
+.stats{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted)}.stats b{color:var(--ink)}
+.progress{height:9px;background:#edf0f5;border-radius:99px;overflow:hidden;margin-top:10px}
+#bar{height:100%;width:0;background:linear-gradient(90deg,#6c5ce7,#3b82f6);transition:width .25s ease}
+.question{padding:24px 20px}.eyebrow{color:var(--primary);font-weight:800;font-size:12px;letter-spacing:.4px;margin-bottom:10px}
+.qtext{direction:ltr;text-align:left;font-size:clamp(20px,5vw,28px);font-weight:850;line-height:1.45}
+.options{display:grid;gap:11px;margin-top:22px}
+.option{direction:ltr;text-align:left;width:100%;background:#fbfcfe;border:1.5px solid #e6eaf1;border-radius:16px;padding:15px 16px;font-size:16px;color:var(--ink);cursor:pointer;transition:.16s ease}
+.option:hover{transform:translateY(-1px);border-color:#b8b0ff}.option:disabled{cursor:default;transform:none}
+.option.correct{border-color:#22c55e;background:var(--goodBg);color:#11652e}
+.option.wrong{border-color:#ef4444;background:var(--badBg);color:#9f1d1d}
+.feedback{display:none;margin-top:16px;border-radius:16px;padding:15px;line-height:1.75}
+.feedback.good{display:block;background:var(--goodBg);border:1px solid #b7efc8;color:#155e34}
+.feedback.bad{display:block;background:var(--badBg);border:1px solid #fecdd3;color:#8f1d2c}
+.next{display:none;width:100%;margin-top:14px}
+.result{display:none;padding:28px 20px;text-align:center}
+.scoreCircle{width:168px;height:168px;border-radius:50%;margin:8px auto 16px;display:grid;place-items:center;position:relative;background:conic-gradient(#22c55e 0deg,#eceff4 0)}
+.scoreCircle:after{content:"";position:absolute;inset:13px;border-radius:50%;background:#fff}
+.scoreInside{position:relative;z-index:1}.scoreInside strong{display:block;font-size:38px}.scoreInside span{color:var(--muted)}
+.review{margin-top:22px;text-align:right}.miss{border:1px solid var(--line);border-right:4px solid #ef4444;border-radius:14px;padding:13px;margin:9px 0;background:#fff}
+.miss .en{direction:ltr;text-align:left;font-weight:800;margin-bottom:6px}.hidden{display:none!important}
+.footerNote{font-size:12px;color:var(--muted);margin-top:14px}
+@media(max-width:520px){.app{padding:10px 10px 30px}.header{margin-top:2px}.question{padding:20px 14px}.start{padding:24px 16px}.option{padding:14px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="brand"><div class="logo">✦</div><div><b>English Grammar</b><div class="small">Parts of Speech Practice</div></div></div>
+    <div class="small">University Level</div>
+  </div>
+
+  <section id="start" class="card start">
+    <div class="hero">🧠</div>
+    <h1>اختبار أقسام الكلام</h1>
+    <p>اختبار تفاعلي من 30 سؤالًا على الأقسام الثمانية التي درستها: Noun, Verb, Pronoun, Adjective, Adverb, Preposition, Conjunction, Interjection.</p>
+    <div class="chips"><span class="chip">30 سؤال</span><span class="chip">اختيار من متعدد</span><span class="chip">تصحيح فوري</span><span class="chip">شرح السبب</span></div>
+    <button class="btn primary" onclick="startQuiz()">ابدأ الاختبار</button>
+  </section>
+
+  <section id="quiz" class="quiz">
+    <div class="card top">
+      <div class="stats"><span>السؤال <b id="num">1</b> من 30</span><span>الدرجة الحالية: <b id="liveScore">0</b></span></div>
+      <div class="progress"><div id="bar"></div></div>
+    </div>
+    <div class="card question">
+      <div class="eyebrow">CHOOSE THE CORRECT ANSWER</div>
+      <div id="qtext" class="qtext"></div>
+      <div id="options" class="options"></div>
+      <div id="feedback" class="feedback"></div>
+      <button id="nextBtn" class="btn primary next" onclick="nextQuestion()">السؤال التالي ←</button>
+    </div>
+  </section>
+
+  <section id="result" class="card result">
+    <div id="scoreCircle" class="scoreCircle"><div class="scoreInside"><strong id="bigScore">0/30</strong><span id="pct">0%</span></div></div>
+    <h2 id="resultTitle">النتيجة النهائية</h2>
+    <p id="resultMsg"></p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+      <button class="btn primary" onclick="restart()">إعادة الاختبار</button>
+      <button class="btn secondary" onclick="toggleReview()">مراجعة الأخطاء</button>
+    </div>
+    <div id="review" class="review hidden"></div>
+    <div class="footerNote">الإجابات موزعة بالتوازن بين A وB وC وD.</div>
+  </section>
+</div>
+
+<script>
+const Q=[
+{q:"In the sentence “The university provides education.”, the word “university” is a/an:",o:["Noun","Verb","Adjective","Adverb"],a:0,e:"University names a place/institution, so it is a noun. الاسم يدل على شخص أو مكان أو شيء أو فكرة."},
+{q:"In the sentence “He studies English every day.”, the word “He” is a/an:",o:["Noun","Pronoun","Adjective","Preposition"],a:1,e:"He replaces a person's name, so it is a pronoun. الضمير يحل محل الاسم."},
+{q:"In the sentence “Students study English.”, the word “study” is a/an:",o:["Noun","Adjective","Verb","Adverb"],a:2,e:"Study expresses the action performed by students, so it is a verb."},
+{q:"In the phrase “a beautiful city”, the word “beautiful” is a/an:",o:["Adverb","Verb","Pronoun","Adjective"],a:3,e:"Beautiful describes the noun city, so it is an adjective."},
+{q:"Which word is a noun?",o:["happiness","quickly","useful","because"],a:0,e:"Happiness names an abstract idea/state, so it is a noun."},
+{q:"Which word is a conjunction?",o:["under","because","slowly","teacher"],a:1,e:"Because connects clauses and expresses a reason, so it is a conjunction."},
+{q:"In the sentence “She speaks slowly.”, the word “slowly” is a/an:",o:["Adjective","Noun","Adverb","Pronoun"],a:2,e:"Slowly tells us how she speaks, so it modifies the verb and is an adverb."},
+{q:"In “Wow! The university is very old.”, the word “Wow!” is a/an:",o:["Preposition","Adjective","Conjunction","Interjection"],a:3,e:"Wow! expresses sudden emotion or surprise, so it is an interjection."},
+{q:"Which of the following is a preposition?",o:["during","beautiful","study","they"],a:0,e:"During is a preposition and can show a relationship of time."},
+{q:"In “Ahmed and Ali are students.”, the word “and” is a/an:",o:["Adverb","Conjunction","Verb","Noun"],a:1,e:"And joins Ahmed and Ali, so it is a conjunction."},
+{q:"In “The book is on the table.”, the word “on” is a/an:",o:["Pronoun","Interjection","Preposition","Adjective"],a:2,e:"On shows the relationship of place between book and table, so it is a preposition."},
+{q:"In “The new student arrived.”, the word “new” is a/an:",o:["Noun","Adverb","Verb","Adjective"],a:3,e:"New describes the noun student, so it is an adjective."},
+{q:"Which sentence contains a pronoun?",o:["She studies English.","Ahmed studies English.","The student studies English.","English is useful."],a:0,e:"She is a pronoun because it replaces the name of a female person."},
+{q:"In “Education helps develop society.”, the word “develop” is a/an:",o:["Noun","Verb","Adjective","Adverb"],a:1,e:"Develop expresses an action, so it is a verb."},
+{q:"In “The university has many faculties.”, the word “many” functions as a/an:",o:["Verb","Pronoun","Adjective","Interjection"],a:2,e:"Many gives information about the noun faculties. In your course exercise it is treated as an adjective."},
+{q:"Which word is an interjection?",o:["from","quickly","old","Ouch!"],a:3,e:"Ouch! expresses sudden pain or feeling, so it is an interjection."},
+{q:"Which word is a verb?",o:["improve","improvement","useful","quickly"],a:0,e:"Improve expresses an action, so it is a verb."},
+{q:"In the phrase “very difficult”, the word “very” is a/an:",o:["Adjective","Adverb","Noun","Preposition"],a:1,e:"Very modifies the adjective difficult, so it is an adverb."},
+{q:"In “We study at university.”, the word “at” is a/an:",o:["Conjunction","Pronoun","Preposition","Verb"],a:2,e:"At shows a relationship of place, so it is a preposition."},
+{q:"In “Hello! How are you?”, the word “Hello!” is a/an:",o:["Adverb","Noun","Conjunction","Interjection"],a:3,e:"Hello! is used as an interjection here."},
+{q:"Which word is an adjective?",o:["accessible","access","accessibly","and"],a:0,e:"Accessible describes a noun, such as accessible education, so it is an adjective."},
+{q:"In “The teacher helped me.”, the word “me” is a/an:",o:["Noun","Pronoun","Adjective","Conjunction"],a:1,e:"Me is an object pronoun, so it belongs to the pronoun category."},
+{q:"In “He answered quickly.”, the word “quickly” is a/an:",o:["Noun","Adjective","Adverb","Verb"],a:2,e:"Quickly describes how he answered, so it is an adverb."},
+{q:"Which of the following is NOT a noun?",o:["development","university","happiness","slowly"],a:3,e:"Slowly is an adverb. The other three are nouns."},
+{q:"In “Students also use the library.”, the word “also” is a/an:",o:["Adverb","Noun","Verb","Interjection"],a:0,e:"Also adds information to the statement and functions as an adverb."},
+{q:"Which word joins two contrasting ideas?",o:["slowly","but","under","student"],a:1,e:"But is a conjunction used to connect contrasting ideas."},
+{q:"In “The university is old.”, the word “old” is a/an:",o:["Noun","Verb","Adjective","Adverb"],a:2,e:"Old describes university, so it is an adjective."},
+{q:"Which word can show a relationship of direction?",o:["beautiful","quickly","and","to"],a:3,e:"To can function as a preposition showing direction, as in to university."},
+{q:"In “Research improves education.”, the word “Research” is a/an:",o:["Noun","Verb","Adjective","Adverb"],a:0,e:"Research names an activity/field and is the subject, so it is a noun here."},
+{q:"In “They are from Yemen.”, the word “They” is a/an:",o:["Noun","Pronoun","Preposition","Adjective"],a:1,e:"They replaces plural nouns, so it is a pronoun."}
+];
+
+let i=0,score=0,answers=[];
+function startQuiz(){document.getElementById('start').style.display='none';document.getElementById('quiz').style.display='block';render()}
+function render(){
+ const x=Q[i];
+ document.getElementById('num').textContent=i+1;
+ document.getElementById('liveScore').textContent=score;
+ document.getElementById('bar').style.width=(i/Q.length*100)+'%';
+ document.getElementById('qtext').textContent=x.q;
+ const box=document.getElementById('options'); box.innerHTML='';
+ const fb=document.getElementById('feedback');fb.className='feedback';fb.innerHTML='';
+ document.getElementById('nextBtn').style.display='none';
+ x.o.forEach((t,j)=>{
+   const b=document.createElement('button');
+   b.className='option';
+   b.textContent=String.fromCharCode(65+j)+'. '+t;
+   b.onclick=()=>choose(j);
+   box.appendChild(b);
+ });
+}
+function choose(j){
+ if(answers[i]!==undefined)return;
+ const x=Q[i],buttons=[...document.querySelectorAll('.option')];
+ answers[i]=j;
+ if(j===x.a)score++;
+ buttons.forEach((b,k)=>{
+   b.disabled=true;
+   if(k===x.a)b.classList.add('correct');
+   if(k===j && k!==x.a)b.classList.add('wrong');
+ });
+ const fb=document.getElementById('feedback');
+ if(j===x.a){
+   fb.className='feedback good';
+   fb.innerHTML='✅ <b>إجابة صحيحة</b><br>'+x.e;
+ }else{
+   fb.className='feedback bad';
+   fb.innerHTML='❌ <b>إجابة خاطئة</b><br>الإجابة الصحيحة: <b>'+String.fromCharCode(65+x.a)+'. '+x.o[x.a]+'</b><br>'+x.e;
+ }
+ document.getElementById('liveScore').textContent=score;
+ document.getElementById('nextBtn').style.display='block';
+}
+function nextQuestion(){
+ if(i<Q.length-1){i++;render();window.scrollTo({top:0,behavior:'smooth'});}
+ else finish();
+}
+function finish(){
+ document.getElementById('quiz').style.display='none';
+ document.getElementById('result').style.display='block';
+ const p=Math.round(score/Q.length*100);
+ document.getElementById('bigScore').textContent=score+'/30';
+ document.getElementById('pct').textContent=p+'%';
+ document.getElementById('scoreCircle').style.background='conic-gradient(#22c55e '+(p*3.6)+'deg,#eceff4 0deg)';
+ document.getElementById('resultTitle').textContent=p>=90?'ممتاز جدًا 🌟':p>=75?'نتيجة قوية 👏':p>=60?'جيد، ثبّت نقاط الضعف':'تحتاج مراجعة مركزة';
+ document.getElementById('resultMsg').textContent='يمكنك مراجعة الأسئلة التي أخطأت فيها فقط.';
+ buildReview();window.scrollTo({top:0,behavior:'smooth'});
+}
+function buildReview(){
+ const wrong=[];
+ Q.forEach((x,k)=>{if(answers[k]!==x.a)wrong.push({x,k,ch:answers[k]});});
+ document.getElementById('review').innerHTML=wrong.length
+ ? '<h3>مراجعة الأخطاء ('+wrong.length+')</h3>'+wrong.map(z=>'<div class="miss"><div class="en">س'+(z.k+1)+': '+z.x.q+'</div>إجابتك: <b>'+z.x.o[z.ch]+'</b><br>الصحيح: <b>'+z.x.o[z.x.a]+'</b><br>'+z.x.e+'</div>').join('')
+ : '<p>🎉 لا توجد أخطاء.</p>';
+}
+function toggleReview(){document.getElementById('review').classList.toggle('hidden')}
+function restart(){i=0;score=0;answers=[];document.getElementById('result').style.display='none';document.getElementById('review').classList.add('hidden');document.getElementById('quiz').style.display='block';render();window.scrollTo({top:0,behavior:'smooth'})}
+</script>
+</body>
+</html>
