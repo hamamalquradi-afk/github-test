@@ -8,6 +8,9 @@ const customers = await readFile(new URL("../app/customers/page.tsx", import.met
 const detail = await readFile(new URL("../app/customers/[id]/page.tsx", import.meta.url), "utf8");
 const reminders = await readFile(new URL("../app/reminder-list.tsx", import.meta.url), "utf8");
 const actions = await readFile(new URL("../app/actions.ts", import.meta.url), "utf8");
+const data = await readFile(new URL("../lib/data.ts", import.meta.url), "utf8");
+const repository = await readFile(new URL("../lib/repository/indexeddb.ts", import.meta.url), "utf8");
+const pkg = await readFile(new URL("../package.json", import.meta.url), "utf8");
 
 test("Phase 4 keeps mobile layouts primary and desktop tables progressive", () => {
   assert.match(css, /\.customer-cards\{display:grid/);
@@ -27,23 +30,17 @@ test("Phase 4 guards narrow screens and long Arabic content", () => {
 });
 
 test("home dashboard exposes required mobile summary information", () => {
-  for (const label of ["الاشتراكات النشطة", "تنبيهات اليوم", "إجمالي المتبقي", "التنبيهات القادمة"]) {
-    assert.match(home + reminders, new RegExp(label));
-  }
+  for (const label of ["الاشتراكات النشطة", "تنبيهات اليوم", "إجمالي المتبقي", "التنبيهات القادمة"]) assert.match(home + reminders, new RegExp(label));
 });
 
 test("customers have desktop table and complete mobile cards", () => {
   assert.match(customers, /className="customer-table table-wrap"/);
   assert.match(customers, /className="customer-cards"/);
-  for (const label of ["الاشتراك", "المدفوع", "المتبقي", "الانتهاء"]) {
-    assert.match(customers, new RegExp(label));
-  }
+  for (const label of ["الاشتراك", "المدفوع", "المتبقي", "الانتهاء"]) assert.match(customers, new RegExp(label));
 });
 
 test("customer details preserve actions and expose all histories", () => {
-  for (const label of ["إضافة دفعة", "تجديد الاشتراك", "تعديل العميل", "سجل الاشتراكات", "سجل الدفعات", "سجل التنبيهات"]) {
-    assert.match(detail, new RegExp(label));
-  }
+  for (const label of ["إضافة دفعة", "تجديد الاشتراك", "تعديل العميل", "سجل الاشتراكات", "سجل الدفعات", "سجل التنبيهات"]) assert.match(detail, new RegExp(label));
 });
 
 test("reminder cards retain Web Share send behavior", () => {
@@ -53,15 +50,22 @@ test("reminder cards retain Web Share send behavior", () => {
   assert.ok(reminders.indexOf("await navigator.share") < reminders.indexOf("await markReminderSent"));
 });
 
-
 test("compact reminder UI keeps overdue unsent reminders visible and eligibility-gated", () => {
   assert.match(reminders, /التنبيهات المتأخرة/);
   assert.match(reminders, /!compact \|\| index < 3/);
   assert.match(reminders, /disabled=\{sending \|\| !canSendReminder/);
 });
 
-test("add-customer failures return to customers page where the error is rendered", () => {
-  assert.match(actions, /if \(error\) redirect\(target\("\/customers", "error", error\.message\)\);/);
-  assert.doesNotMatch(actions, /if \(error\) redirect\(target\("\/", "error", error\.message\)\);/);
-  assert.match(customers, /params\.error && <p className="notice error">\{params\.error\}<\/p>/);
+test("add-customer failures remain on customers page and expose the error", () => {
+  assert.ok(customers.includes("router.replace(`/customers?error="));
+  assert.match(customers, /error && <p className="notice error"/);
+  assert.ok(customers.includes("router.push(`/customers/${id}?success="));
+});
+
+test("Phase 5 runtime uses IndexedDB repository and has no Supabase runtime dependency", () => {
+  assert.match(repository, /indexedDB/);
+  assert.match(repository, /transaction\(\[STORES\.customers, STORES\.subscriptions, STORES\.reminders\], "readwrite"\)/);
+  assert.match(data, /repository\/indexeddb/);
+  assert.doesNotMatch(actions + data + home + customers + detail + reminders, /supabase|NEXT_PUBLIC_SUPABASE/i);
+  assert.doesNotMatch(pkg, /@supabase\/supabase-js/);
 });

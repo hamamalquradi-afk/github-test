@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { markReminderSent } from "./actions";
 import { canSendReminder, daysRemaining, reminderMessage } from "../lib/domain";
 import type { ReminderView } from "../lib/types";
 
-export function ReminderList({ reminders, today, compact = false }: { reminders: ReminderView[]; today: string; compact?: boolean }) {
+export function ReminderList({ reminders, today, compact = false, onChanged }: { reminders: ReminderView[]; today: string; compact?: boolean; onChanged?: () => void | Promise<void> }) {
   const groups = [
     { title: "تنبيهات اليوم", description: "المستحقة اليوم", items: reminders.filter((item) => item.scheduled_date.slice(0, 10) === today) },
     { title: "التنبيهات القادمة", description: "المواعيد القادمة", items: reminders.filter((item) => item.scheduled_date.slice(0, 10) > today) },
@@ -14,11 +13,10 @@ export function ReminderList({ reminders, today, compact = false }: { reminders:
     { title: "التنبيهات المرسلة سابقًا", description: "سجل الإرسال", items: reminders.filter((item) => item.scheduled_date.slice(0, 10) < today && item.status === "SENT") },
   ].filter((_, index) => !compact || index < 3);
 
-  return <div className="reminder-groups">{groups.map((group) => <section className="reminder-group" key={group.title}><div className="reminder-group-heading"><div><h3>{group.title}</h3><p>{group.description}</p></div><span className="section-count">{group.items.length}</span></div>{group.items.length ? <div className="reminder-list">{group.items.map((reminder) => <ReminderItem key={reminder.id} reminder={reminder} today={today}/>)}</div> : <p className="empty-state">لا توجد تنبيهات.</p>}</section>)}</div>;
+  return <div className="reminder-groups">{groups.map((group) => <section className="reminder-group" key={group.title}><div className="reminder-group-heading"><div><h3>{group.title}</h3><p>{group.description}</p></div><span className="section-count">{group.items.length}</span></div>{group.items.length ? <div className="reminder-list">{group.items.map((reminder) => <ReminderItem key={reminder.id} reminder={reminder} today={today} onChanged={onChanged}/>)}</div> : <p className="empty-state">لا توجد تنبيهات.</p>}</section>)}</div>;
 }
 
-function ReminderItem({ reminder, today }: { reminder: ReminderView; today: string }) {
-  const router = useRouter();
+function ReminderItem({ reminder, today, onChanged }: { reminder: ReminderView; today: string; onChanged?: () => void | Promise<void> }) {
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -36,11 +34,9 @@ function ReminderItem({ reminder, today }: { reminder: ReminderView; today: stri
       await navigator.share({ text: reminderMessage(customer.name, subscription.subscription_name, subscription.end_date) });
       await markReminderSent(reminder.id);
       setSentAt(new Date().toISOString());
-      router.refresh();
+      await onChanged?.();
     } catch (error) {
-      if (!(error instanceof Error && error.name === "AbortError")) {
-        setError(error instanceof Error ? error.message : "تعذر إرسال الرسالة");
-      }
+      if (!(error instanceof Error && error.name === "AbortError")) setError(error instanceof Error ? error.message : "تعذر إرسال الرسالة");
     } finally {
       setSending(false);
     }
