@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { assertValidAmount, assertValidDates, paymentSummary } from "../lib/domain";
+import { assertValidAmount, assertValidDates, parseReminderDays, paymentSummary } from "../lib/domain";
 import { getSupabase } from "../lib/supabase";
 
 const text = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
@@ -45,13 +45,15 @@ export async function addSubscription(data: FormData) {
   const endDate = required(data, "end_date", "تاريخ النهاية");
   try {
     assertValidDates(startDate, endDate);
-    const { error } = await getSupabase().from("subscriptions").insert({
-      customer_id: customerId,
-      subscription_name: required(data, "subscription_name", "اسم الاشتراك"),
-      amount: assertValidAmount(data.get("amount"), "المبلغ"),
-      start_date: startDate,
-      end_date: endDate,
-      status: "active",
+    const supabase = getSupabase();
+    const reminderDays = parseReminderDays(required(data, "reminder_days", "أيام التنبيه"));
+    const { error } = await supabase.rpc("create_subscription_with_reminders", {
+      target_customer_id: customerId,
+      target_name: required(data, "subscription_name", "اسم الاشتراك"),
+      target_amount: assertValidAmount(data.get("amount"), "المبلغ"),
+      target_start_date: startDate,
+      target_end_date: endDate,
+      reminder_days: reminderDays,
     });
     if (error) throw new Error(error.message);
   } catch (error) {
@@ -65,6 +67,30 @@ export async function addSubscription(data: FormData) {
 export async function renewSubscription(data: FormData) {
   // Renewal deliberately inserts a new row; the historical subscription is never updated.
   await addSubscription(data);
+}
+
+export async function configureReminders(data: FormData) {
+  const customerId = required(data, "customer_id", "العميل");
+  try {
+    const days = parseReminderDays(required(data, "reminder_days", "أيام التنبيه"));
+    const { error } = await getSupabase().rpc("create_subscription_reminders", {
+      target_subscription_id: required(data, "subscription_id", "الاشتراك"),
+      target_customer_id: customerId,
+      reminder_days: days,
+    });
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    redirect(target(`/customers/${customerId}`, "error", error instanceof Error ? error.message : "بيانات غير صحيحة"));
+  }
+  revalidatePath("/");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(target(`/customers/${customerId}`, "success", "تم حفظ إعدادات التنبيهات"));
+}
+
+export async function markReminderSent(reminderId: string) {
+  const { error } = await getSupabase().rpc("mark_reminder_sent", { target_reminder_id: reminderId });
+  if (error) throw new Error("تعذر تسجيل إرسال الرسالة");
+  revalidatePath("/");
 }
 
 export async function addPayment(data: FormData) {

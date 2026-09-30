@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
 
@@ -8,20 +9,32 @@ if (!process.env.DATABASE_URL) {
 
 const { Client } = pg;
 const client = new Client({ connectionString: process.env.DATABASE_URL });
-const migration = await readFile(
-  new URL("../supabase/migrations/20260930000000_create_core_records.sql", import.meta.url),
-  "utf8",
-);
-const tests = await readFile(new URL("../tests/database.sql", import.meta.url), "utf8");
-const phaseTwoTests = await readFile(new URL("../tests/database-phase2.sql", import.meta.url), "utf8");
+// Exercise the legacy-to-Phase-3 upgrade in isolation, never against application rows.
+const testSchema = "phase3_test_" + randomUUID().replaceAll("-", "");
+const files = [
+  "supabase/migrations/20260930000000_create_core_records.sql",
+  "tests/fixtures/phase3-legacy-reminders.sql",
+  "supabase/migrations/20260930010000_phase3_reminders.sql",
+  "tests/database-phase3.sql",
+  "tests/database.sql",
+  "tests/database-phase2.sql",
+];
+const statements = await Promise.all(files.map(async (path) => {
+  const sql = await readFile(new URL("../" + path, import.meta.url), "utf8");
+  // Keep one outer transaction: strip only the files' outer transaction wrappers.
+  return sql.replace(/^\s*begin;\s*/i, "").replace(/\s*(?:commit|rollback);\s*$/i, "")
+    .replaceAll("public.", testSchema + ".")
+    .replaceAll("set search_path = public", "set search_path = " + testSchema + ", public");
+}));
 
 try {
   await client.connect();
-  const { rows } = await client.query("select to_regclass('public.customers') as customers");
-  if (!rows[0].customers) await client.query(migration);
-  await client.query(tests);
-  await client.query(phaseTwoTests);
-  console.log("Database integration tests passed.");
+  await client.query("begin");
+  await client.query("create schema " + testSchema);
+  await client.query("set local search_path = " + testSchema + ", public");
+  for (const sql of statements) await client.query(sql);
+  console.log("Phase 1, Phase 2 and Phase 3 database integration tests passed.");
 } finally {
-  await client.end();
+  // Also rolls back the isolated schema and fixtures after an assertion fails.
+  try { await client.query("rollback"); } finally { await client.end(); }
 }
