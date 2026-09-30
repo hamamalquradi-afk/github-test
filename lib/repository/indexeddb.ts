@@ -338,6 +338,8 @@ export async function getReminders(today: string): Promise<ReminderView[]> {
 }
 
 export async function getCustomerReminders(customerId: string): Promise<ReminderView[]> {
+  const db = await openLocalDatabase();
+  await refreshDueReminders(db, todayUtc());
   return reminderViews(customerId);
 }
 
