@@ -16,7 +16,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <Link className="brand" href="/">متابعة الاشتراكات</Link>
             <nav className="main-nav" aria-label="التنقل الرئيسي">
               <Link href="/">الرئيسية</Link>
-              <Link href="/customers">العملاء</Link>\n              <Link href="/settings">الإعدادات</Link>
+              <Link href="/customers">العملاء</Link>
+              <Link href="/settings">الإعدادات</Link>
             </nav>
           </div>
         </header>
