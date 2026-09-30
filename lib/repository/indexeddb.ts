@@ -1,3 +1,4 @@
+import { createBackupDocument, validateBackup, type BackupDocument, type BackupCustomer, type BackupSubscription } from "../backup.ts";
 import { parseReminderDays, reminderDate } from "../domain.ts";
 import type { Customer, Payment, Reminder, ReminderView, Subscription } from "../types.ts";
 
@@ -337,6 +338,8 @@ export async function getReminders(today: string): Promise<ReminderView[]> {
 }
 
 export async function getCustomerReminders(customerId: string): Promise<ReminderView[]> {
+  const db = await openLocalDatabase();
+  await refreshDueReminders(db, todayUtc());
   return reminderViews(customerId);
 }
 
@@ -375,4 +378,49 @@ export async function clearLocalDatabaseForTests(): Promise<void> {
     deletion.onerror = () => reject(localError("تعذر إعادة ضبط قاعدة البيانات المحلية للاختبار.", deletion.error));
     deletion.onblocked = () => reject(localError("قاعدة البيانات المحلية ما زالت مفتوحة أثناء الاختبار."));
   });
+}
+
+
+export async function exportAllData(): Promise<BackupDocument> {
+  const db = await openLocalDatabase();
+  const tx = db.transaction([STORES.customers, STORES.subscriptions, STORES.payments, STORES.reminders], "readonly");
+  const [customers, subscriptions, payments, reminders] = await Promise.all([
+    all<BackupCustomer>(tx.objectStore(STORES.customers), "تعذر تصدير العملاء."),
+    all<BackupSubscription>(tx.objectStore(STORES.subscriptions), "تعذر تصدير الاشتراكات."),
+    all<Payment>(tx.objectStore(STORES.payments), "تعذر تصدير الدفعات."),
+    all<Reminder>(tx.objectStore(STORES.reminders), "تعذر تصدير التنبيهات."),
+  ]);
+  await transactionDone(tx);
+  return createBackupDocument({ customers, subscriptions, payments, reminders });
+}
+
+export async function restoreBackup(backup: BackupDocument): Promise<void> {
+  const validated = validateBackup(backup);
+  const db = await openLocalDatabase();
+  const tx = db.transaction([STORES.customers, STORES.subscriptions, STORES.payments, STORES.reminders], "readwrite");
+  const completion = transactionDone(tx);
+  try {
+    const customers = tx.objectStore(STORES.customers);
+    const subscriptions = tx.objectStore(STORES.subscriptions);
+    const payments = tx.objectStore(STORES.payments);
+    const reminders = tx.objectStore(STORES.reminders);
+
+    await Promise.all([
+      request(customers.clear(), "تعذر تجهيز العملاء للاستعادة."),
+      request(subscriptions.clear(), "تعذر تجهيز الاشتراكات للاستعادة."),
+      request(payments.clear(), "تعذر تجهيز الدفعات للاستعادة."),
+      request(reminders.clear(), "تعذر تجهيز التنبيهات للاستعادة."),
+    ]);
+
+    for (const item of validated.data.customers) customers.add({ ...item });
+    for (const item of validated.data.subscriptions) subscriptions.add({ ...item });
+    for (const item of validated.data.payments) payments.add({ ...item });
+    for (const item of validated.data.reminders) reminders.add({ ...item });
+
+    await completion;
+  } catch (error) {
+    try { tx.abort(); } catch {}
+    try { await completion; } catch {}
+    throw localError("تعذر استعادة النسخة الاحتياطية. بقيت البيانات الحالية دون تغيير.", error);
+  }
 }
