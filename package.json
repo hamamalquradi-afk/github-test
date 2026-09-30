@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "test": "node --test tests/schema.test.mjs tests/domain.test.ts tests/ui.test.mjs tests/local-repository.test.ts",
+    "test": "node --test tests/schema.test.mjs tests/domain.test.ts tests/ui.test.mjs tests/local-repository.test.ts tests/customer-search.test.ts",
     "test:db": "node scripts/run-database-tests.mjs",
     "typecheck": "tsc --noEmit"
   },

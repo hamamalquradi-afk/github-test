@@ -1,32 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { addCustomer } from "../actions";
 import { currentSubscription, effectiveSubscriptionStatus, paymentSummary } from "../../lib/domain";
 import { getCustomers } from "../../lib/data";
+import { createLatestSearchRunner, customerSearchQuery } from "../../lib/customer-search";
 import type { Customer } from "../../lib/types";
 
 export default function CustomersPage() {
+  return <Suspense fallback={<p className="empty-state">جارٍ تحميل البيانات المحلية…</p>}><CustomersContent /></Suspense>;
+}
+
+function CustomersContent() {
   const router = useRouter();
-  const [q, setQ] = useState("");
+  const searchParams = useSearchParams();
+  const q = customerSearchQuery(searchParams);
+  const urlError = searchParams.get("error") ?? "";
+  const [searchValue, setSearchValue] = useState(q);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(urlError);
   const [loading, setLoading] = useState(true);
+  const searchRunner = useRef(createLatestSearchRunner(getCustomers));
   const today = new Date().toISOString().slice(0, 10);
 
-  const load = useCallback(async () => {
-    try { setCustomers(await getCustomers(q)); }
-    catch (value) { setError(value instanceof Error ? value.message : "تعذر قراءة العملاء"); }
-    finally { setLoading(false); }
-  }, [q]);
+  useEffect(() => { setSearchValue(q); }, [q]);
+  useEffect(() => { setError(urlError); }, [urlError]);
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setQ(params.get("q") ?? "");
-    setError(params.get("error") ?? "");
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+    setLoading(true);
+    void searchRunner.current(q).then((result) => {
+      if (!result.current) return;
+      if (result.error) setError(result.error instanceof Error ? result.error.message : "تعذر قراءة العملاء");
+      else setCustomers(result.value ?? []);
+      setLoading(false);
+    });
+  }, [q]);
 
   async function submitCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,16 +51,14 @@ export default function CustomersPage() {
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const value = String(data.get("q") ?? "").trim();
-    setQ(value);
+    const value = searchValue.trim();
     router.push(value ? `/customers?q=${encodeURIComponent(value)}` : "/customers");
   }
 
   return <>
     <section className="page-heading"><div><span className="eyebrow">إدارة العملاء</span><h1>العملاء</h1><p>ابحث، راجع الاشتراك الحالي، وافتح سجل العميل.</p></div><span className="section-count">{customers.length} عميل</span></section>
     {error && <p className="notice error" role="alert">{error}</p>}
-    <form className="search" role="search" onSubmit={submitSearch}><label className="sr-only" htmlFor="customer-search">بحث بالاسم أو رقم الهاتف</label><input id="customer-search" name="q" defaultValue={q} placeholder="بحث بالاسم أو رقم الهاتف"/><button type="submit">بحث</button></form>
+    <form className="search" role="search" onSubmit={submitSearch}><label className="sr-only" htmlFor="customer-search">بحث بالاسم أو رقم الهاتف</label><input id="customer-search" name="q" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="بحث بالاسم أو رقم الهاتف"/><button type="submit">بحث</button></form>
     <details className="card action-card"><summary>+ إضافة عميل جديد</summary><form onSubmit={submitCustomer} className="form-grid"><label>اسم العميل<input name="name" required /></label><label>رقم الهاتف<input name="phone" required inputMode="tel" /></label><label className="wide">ملاحظات<textarea name="notes" rows={3} /></label><button className="primary">حفظ العميل</button></form></details>
     {loading && <p className="empty-state">جارٍ تحميل البيانات المحلية…</p>}
     <div className="customer-table table-wrap"><table><thead><tr><th>العميل</th><th>الهاتف</th><th>الاشتراك الحالي</th><th>المدفوع</th><th>المتبقي</th><th>النهاية</th><th>الحالة</th></tr></thead><tbody>
