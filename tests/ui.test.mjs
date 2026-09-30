@@ -11,6 +11,9 @@ const actions = await readFile(new URL("../app/actions.ts", import.meta.url), "u
 const data = await readFile(new URL("../lib/data.ts", import.meta.url), "utf8");
 const repository = await readFile(new URL("../lib/repository/indexeddb.ts", import.meta.url), "utf8");
 const pkg = await readFile(new URL("../package.json", import.meta.url), "utf8");
+const settings = await readFile(new URL("../app/settings/page.tsx", import.meta.url), "utf8");
+const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+const backup = await readFile(new URL("../lib/backup.ts", import.meta.url), "utf8");
 
 test("Phase 4 keeps mobile layouts primary and desktop tables progressive", () => {
   assert.match(css, /\.customer-cards\{display:grid/);
@@ -68,4 +71,18 @@ test("Phase 5 runtime uses IndexedDB repository and has no Supabase runtime depe
   assert.match(data, /repository\/indexeddb/);
   assert.doesNotMatch(actions + data + home + customers + detail + reminders, /supabase|NEXT_PUBLIC_SUPABASE/i);
   assert.doesNotMatch(pkg, /@supabase\/supabase-js/);
+});
+
+
+test("Phase 6 backup and restore UI is explicit, local-only and storage-isolated", () => {
+  for (const label of ["إنشاء نسخة احتياطية", "استعادة نسخة احتياطية", "تأكيد الاستعادة واستبدال البيانات الحالية", "Google Drive"]) {
+    assert.match(settings, new RegExp(label));
+  }
+  assert.match(settings, /type="file"/);
+  assert.match(settings, /navigator\.share/);
+  assert.match(settings, /downloadFile/);
+  assert.match(settings, /exportAllData, restoreBackup/);
+  assert.doesNotMatch(settings, /indexedDB|objectStore/);
+  assert.doesNotMatch(settings + backup, /googleapis|accounts\.google|oauth/i);
+  assert.match(layout, /href="\/settings">الإعدادات/);
 });
