@@ -150,3 +150,18 @@ dd{margin:0;font-weight:700;overflow-wrap:anywhere;word-break:break-word}
 @media (min-width:1024px){
   .compact-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
+
+.backup-grid{display:grid;gap:1rem}
+.backup-card{min-width:0}
+.backup-card h2,.backup-card h3{margin-top:0}
+.backup-card p{color:var(--muted);overflow-wrap:anywhere}
+.backup-actions{display:flex;flex-wrap:wrap;gap:.65rem;margin-top:1rem}
+.backup-actions button{min-height:46px}
+.privacy-note{margin-top:1rem;font-size:.85rem}
+.restore-confirmation{margin-top:1rem;padding:1rem;border:1px solid var(--border);border-radius:.85rem;background:var(--surface-soft)}
+.restore-warning{color:#991b1b!important;font-weight:700}
+.backup-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;margin:1rem 0}
+.backup-summary div{min-width:0;background:var(--surface);border-radius:.7rem;padding:.65rem}
+.danger-button{background:#b91c1c;color:#fff;border-color:#b91c1c}
+.danger-button:hover{background:#991b1b}
+@media (min-width:768px){.backup-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
