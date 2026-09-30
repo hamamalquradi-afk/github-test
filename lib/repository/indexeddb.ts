@@ -1,4 +1,5 @@
-import { createBackupDocument, validateBackup, type BackupDocument, type BackupCustomer, type BackupSubscription } from "../backup.ts";\nimport { parseReminderDays, reminderDate } from "../domain.ts";
+import { createBackupDocument, validateBackup, type BackupDocument, type BackupCustomer, type BackupSubscription } from "../backup.ts";
+import { parseReminderDays, reminderDate } from "../domain.ts";
 import type { Customer, Payment, Reminder, ReminderView, Subscription } from "../types.ts";
 
 const DATABASE_NAME = "subscription-collection-tracker";
