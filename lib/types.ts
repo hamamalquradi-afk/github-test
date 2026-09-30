@@ -25,3 +25,16 @@ export interface Customer {
   created_at: string;
   subscriptions: Subscription[];
 }
+
+export interface ReminderView {
+  id: string;
+  scheduled_date: string;
+  sent_at: string | null;
+  status: "PENDING" | "DUE" | "SENT";
+  subscriptions: {
+    status: string;
+    subscription_name: string;
+    end_date: string;
+    customers: { name: string; phone: string };
+  };
+}

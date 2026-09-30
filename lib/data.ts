@@ -1,5 +1,5 @@
 import { getSupabase } from "./supabase";
-import type { Customer } from "./types";
+import type { Customer, ReminderView } from "./types";
 
 const customerSelection = `
   id, name, phone, notes, created_at,
@@ -39,4 +39,18 @@ export async function getCustomer(id: string): Promise<Customer | null> {
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data ? sortHistory(data as unknown as Customer) : null;
+}
+
+export async function getReminders(today: string): Promise<ReminderView[]> {
+  const supabase = getSupabase();
+  const { error: refreshError } = await supabase.rpc("refresh_due_reminders");
+  if (refreshError) throw new Error(refreshError.message);
+  const { data, error } = await supabase
+    .from("reminders")
+    .select("id, scheduled_date, sent_at, status, subscriptions!inner(subscription_name, end_date, status, customers!inner(name, phone))")
+    .eq("subscriptions.status", "active")
+    .gte("subscriptions.end_date", today)
+    .order("scheduled_date", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as ReminderView[];
 }
