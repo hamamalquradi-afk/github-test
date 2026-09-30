@@ -7,6 +7,7 @@ const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8")
 const customers = await readFile(new URL("../app/customers/page.tsx", import.meta.url), "utf8");
 const detail = await readFile(new URL("../app/customers/[id]/page.tsx", import.meta.url), "utf8");
 const reminders = await readFile(new URL("../app/reminder-list.tsx", import.meta.url), "utf8");
+const actions = await readFile(new URL("../app/actions.ts", import.meta.url), "utf8");
 
 test("Phase 4 keeps mobile layouts primary and desktop tables progressive", () => {
   assert.match(css, /\.customer-cards\{display:grid/);
@@ -50,4 +51,17 @@ test("reminder cards retain Web Share send behavior", () => {
   assert.match(reminders, /await markReminderSent/);
   assert.match(reminders, /disabled=\{sending \|\| !canSendReminder/);
   assert.ok(reminders.indexOf("await navigator.share") < reminders.indexOf("await markReminderSent"));
+});
+
+
+test("compact reminder UI keeps overdue unsent reminders visible and eligibility-gated", () => {
+  assert.match(reminders, /التنبيهات المتأخرة/);
+  assert.match(reminders, /!compact \|\| index < 3/);
+  assert.match(reminders, /disabled=\{sending \|\| !canSendReminder/);
+});
+
+test("add-customer failures return to customers page where the error is rendered", () => {
+  assert.match(actions, /if \(error\) redirect\(target\("\/customers", "error", error\.message\)\);/);
+  assert.doesNotMatch(actions, /if \(error\) redirect\(target\("\/", "error", error\.message\)\);/);
+  assert.match(customers, /params\.error && <p className="notice error">\{params\.error\}<\/p>/);
 });
