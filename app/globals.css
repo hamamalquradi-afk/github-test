@@ -165,3 +165,7 @@ dd{margin:0;font-weight:700;overflow-wrap:anywhere;word-break:break-word}
 .danger-button{background:#b91c1c;color:#fff;border-color:#b91c1c}
 .danger-button:hover{background:#991b1b}
 @media (min-width:768px){.backup-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.message-fallback{margin-top:.7rem;padding:.8rem;border:1px solid var(--border);border-radius:.8rem;background:var(--surface-soft)}
+.message-fallback label{display:block;font-weight:800;margin-bottom:.45rem}
+.message-text{width:100%;min-height:110px;resize:vertical;direction:rtl;text-align:right;white-space:pre-wrap;overflow-wrap:anywhere}
