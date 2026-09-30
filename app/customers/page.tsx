@@ -7,6 +7,7 @@ import { addCustomer } from "../actions";
 import { currentSubscription, effectiveSubscriptionStatus, paymentSummary } from "../../lib/domain";
 import { getCustomers } from "../../lib/data";
 import { createLatestSearchRunner, customerSearchQuery } from "../../lib/customer-search";
+import { localToday } from "../../lib/local-date";
 import type { Customer } from "../../lib/types";
 
 export default function CustomersPage() {
@@ -23,7 +24,7 @@ function CustomersContent() {
   const [error, setError] = useState(urlError);
   const [loading, setLoading] = useState(true);
   const searchRunner = useRef(createLatestSearchRunner(getCustomers));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
 
   useEffect(() => { setSearchValue(q); }, [q]);
   useEffect(() => { setError(urlError); }, [urlError]);
