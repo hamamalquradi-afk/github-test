@@ -56,7 +56,13 @@ test("compact reminder UI keeps overdue unsent reminders visible and eligibility
   assert.match(reminders, /disabled=\{sending \|\| !canSendReminder/);
 });
 
-test("add-customer failures remain on customers page and expose the error", () => {\n  assert.ok(customers.includes("router.replace(`/customers?error="));\n  assert.match(customers, /error && <p className="notice error"/);\n  assert.ok(customers.includes("router.push(`/customers/${id}?success="));\n});\ntest("Phase 5 runtime uses IndexedDB repository and has no Supabase runtime dependency", () => {
+test("add-customer failures remain on customers page and expose the error", () => {
+  assert.ok(customers.includes("router.replace(`/customers?error="));
+  assert.match(customers, /error && <p className="notice error"/);
+  assert.ok(customers.includes("router.push(`/customers/${id}?success="));
+});
+
+test("Phase 5 runtime uses IndexedDB repository and has no Supabase runtime dependency", () => {
   assert.match(repository, /indexedDB/);
   assert.match(repository, /transaction\(\[STORES\.customers, STORES\.subscriptions, STORES\.reminders\], "readwrite"\)/);
   assert.match(data, /repository\/indexeddb/);
