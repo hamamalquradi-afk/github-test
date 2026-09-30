@@ -16,6 +16,7 @@ import {
   createPayment,
   createSubscription,
   exportAllData,
+  getCustomerReminders,
   getReminders,
   markReminderSent,
   resetLocalDatabaseConnectionForTests,
@@ -171,4 +172,21 @@ test("backup round-trip restores equivalent application data", async () => {
 
   assert.deepEqual(roundTrip.data, original.data);
   assert.deepEqual(roundTrip.counts, original.counts);
+});
+
+
+test("restored stale PENDING reminders become DUE on direct customer history read without hiding history", async () => {
+  await fresh();
+  const ids = await seedData();
+  const backup = await exportAllData();
+  const stale = backup.data.reminders.find((item) => item.subscription_id === ids.active && item.days_before === 10)!;
+  stale.status = "PENDING";
+  stale.sent_at = null;
+
+  await restoreBackup(backup);
+  const customerReminders = await getCustomerReminders(ids.customer);
+  const refreshed = customerReminders.find((item) => item.id === stale.id)!;
+
+  assert.equal(refreshed.status, "DUE");
+  assert.equal(customerReminders.length, 3);
 });
