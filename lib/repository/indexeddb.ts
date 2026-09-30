@@ -1,5 +1,5 @@
-import { parseReminderDays, reminderDate } from "../domain";
-import type { Customer, Payment, Reminder, ReminderView, Subscription } from "../types";
+import { parseReminderDays, reminderDate } from "../domain.ts";
+import type { Customer, Payment, Reminder, ReminderView, Subscription } from "../types.ts";
 
 const DATABASE_NAME = "subscription-collection-tracker";
 const DATABASE_VERSION = 1;
