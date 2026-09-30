@@ -21,7 +21,7 @@ export async function addCustomer(data: FormData) {
     .insert({ name: required(data, "name", "الاسم"), phone: required(data, "phone", "الهاتف"), notes: text(data, "notes") || null })
     .select("id")
     .single();
-  if (error) redirect(target("/", "error", error.message));
+  if (error) redirect(target("/customers", "error", error.message));
   revalidatePath("/");
   redirect(target(`/customers/${customer.id}`, "success", "تمت إضافة العميل"));
 }

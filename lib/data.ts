@@ -54,3 +54,13 @@ export async function getReminders(today: string): Promise<ReminderView[]> {
   if (error) throw new Error(error.message);
   return (data ?? []) as unknown as ReminderView[];
 }
+
+export async function getCustomerReminders(customerId: string): Promise<ReminderView[]> {
+  const { data, error } = await getSupabase()
+    .from("reminders")
+    .select("id, scheduled_date, sent_at, status, subscriptions!inner(subscription_name, end_date, status, customers!inner(name, phone))")
+    .eq("customer_id", customerId)
+    .order("scheduled_date", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as ReminderView[];
+}

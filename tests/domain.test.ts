@@ -105,3 +105,17 @@ test("Arabic message recomputes remaining days for each send date across midnigh
     "مرحبًا أحمد، نذكرك بأن اشتراكك الذهبي سينتهي بتاريخ 2026-10-20. متبقي 4 أيام على انتهاء الاشتراك.");
   assert.match(reminderMessage("أحمد", "الذهبي", "2026-10-20", "2026-10-20"), /متبقي 0 أيام/);
 });
+
+
+test("reminder eligibility preserves overdue, today, future, and SENT behavior", () => {
+  const subscription = { status: "active", end_date: "2026-10-20" };
+  const overdue = { status: "DUE" as const, scheduled_date: "2026-10-15T00:00:00Z", subscriptions: subscription };
+  const today = { status: "DUE" as const, scheduled_date: "2026-10-16T00:00:00Z", subscriptions: subscription };
+  const future = { status: "DUE" as const, scheduled_date: "2026-10-17T00:00:00Z", subscriptions: subscription };
+  const sent = { status: "SENT" as const, scheduled_date: "2026-10-15T00:00:00Z", subscriptions: subscription };
+
+  assert.equal(canSendReminder(overdue, "2026-10-16"), true);
+  assert.equal(canSendReminder(today, "2026-10-16"), true);
+  assert.equal(canSendReminder(future, "2026-10-16"), false);
+  assert.equal(canSendReminder(sent, "2026-10-16"), false);
+});

@@ -1,26 +1,59 @@
 import Link from "next/link";
-import { addCustomer } from "./actions";
 import { currentSubscription, effectiveSubscriptionStatus, paymentSummary } from "../lib/domain";
 import { getCustomers, getReminders } from "../lib/data";
 import { ReminderList } from "./reminder-list";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ q?: string; error?: string }> }) {
-  const params = await searchParams;
+export default async function Home() {
   const today = new Date().toISOString().slice(0, 10);
-  const [customers, reminders] = await Promise.all([getCustomers(params.q), getReminders(today)]);
+  const [customers, reminders] = await Promise.all([getCustomers(), getReminders(today)]);
+  const currentSubscriptions = customers
+    .map((customer) => ({ customer, subscription: currentSubscription(customer.subscriptions, today) }))
+    .filter(({ subscription }) => subscription && subscription.status.toLowerCase() === "active" && subscription.start_date <= today && effectiveSubscriptionStatus(subscription.end_date, today) === "ACTIVE");
+  const remainingTotal = currentSubscriptions.reduce(
+    (total, { subscription }) => total + paymentSummary(subscription!.amount, subscription!.payments).remaining,
+    0,
+  );
+  const todayReminders = reminders.filter((item) => item.scheduled_date.slice(0, 10) === today && item.status !== "SENT");
+  const upcomingReminders = reminders.filter((item) => item.scheduled_date.slice(0, 10) > today && item.status !== "SENT");
+
   return (
     <>
-      <section className="title-row"><div><h1>العملاء</h1><p>العملاء واشتراكاتهم الحالية</p></div></section>
-      {params.error && <p className="notice error">{params.error}</p>}
-      <form className="search" method="get"><input name="q" defaultValue={params.q} placeholder="بحث بالاسم أو رقم الهاتف"/><button>بحث</button></form>
-      <details className="card"><summary>+ إضافة عميل</summary><form action={addCustomer} className="form-grid"><label>اسم العميل<input name="name" required /></label><label>رقم الهاتف<input name="phone" required inputMode="tel" /></label><label className="wide">ملاحظات<textarea name="notes" rows={2} /></label><button className="primary">حفظ العميل</button></form></details>
-      <div className="table-wrap"><table><thead><tr><th>العميل</th><th>الهاتف</th><th>الاشتراك الحالي</th><th>القيمة</th><th>البداية</th><th>النهاية</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th></tr></thead><tbody>
-        {customers.map((customer) => { const current = currentSubscription(customer.subscriptions, today); const summary = current ? paymentSummary(current.amount, current.payments) : null; const status = current ? effectiveSubscriptionStatus(current.end_date, today) : null; return <tr key={customer.id}><td><Link href={`/customers/${customer.id}`}>{customer.name}</Link></td><td dir="ltr">{customer.phone}</td><td>{current?.subscription_name ?? "—"}</td><td>{current ? Number(current.amount).toFixed(2) : "—"}</td><td>{current?.start_date ?? "—"}</td><td>{current?.end_date ?? "—"}</td><td>{summary?.totalPaid.toFixed(2) ?? "—"}</td><td>{summary?.remaining.toFixed(2) ?? "—"}</td><td>{status === "EXPIRED" ? <span className="badge expired">EXPIRED</span> : summary ? <span className={`badge ${summary.status.toLowerCase()}`}>{summary.status}</span> : "—"}</td></tr>; })}
-        {!customers.length && <tr><td colSpan={9} className="empty">لا توجد نتائج</td></tr>}
-      </tbody></table></div>
-      <ReminderList reminders={reminders} today={today}/>
+      <section className="page-heading">
+        <div>
+          <span className="eyebrow">لوحة المتابعة</span>
+          <h1>نظرة سريعة على التحصيل</h1>
+          <p>الاشتراكات والمبالغ والتنبيهات المهمة في مكان واحد.</p>
+        </div>
+        <Link className="button-link" href="/customers">إدارة العملاء</Link>
+      </section>
+
+      <section className="summary-grid" aria-label="ملخص اليوم">
+        <article className="summary-card"><span>العملاء</span><strong>{customers.length}</strong><small>إجمالي السجلات</small></article>
+        <article className="summary-card"><span>الاشتراكات النشطة</span><strong>{currentSubscriptions.length}</strong><small>حتى {today}</small></article>
+        <article className="summary-card"><span>تنبيهات اليوم</span><strong>{todayReminders.length}</strong><small>بانتظار الإرسال</small></article>
+        <article className="summary-card"><span>إجمالي المتبقي</span><strong className="amount">{remainingTotal.toFixed(2)}</strong><small>على الاشتراكات الحالية</small></article>
+      </section>
+
+      <section className="section-block">
+        <div className="section-heading"><div><span className="eyebrow">الاشتراكات الحالية</span><h2>المبالغ المتبقية</h2></div><Link href="/customers">عرض جميع العملاء</Link></div>
+        <div className="compact-grid">
+          {currentSubscriptions.slice(0, 6).map(({ customer, subscription }) => {
+            const summary = paymentSummary(subscription!.amount, subscription!.payments);
+            return <Link className="compact-card" href={`/customers/${customer.id}`} key={customer.id}>
+              <div><strong>{customer.name}</strong><span>{subscription!.subscription_name}</span></div>
+              <div className="compact-meta"><span>ينتهي {subscription!.end_date}</span><b>{summary.remaining.toFixed(2)} متبقي</b></div>
+            </Link>;
+          })}
+          {!currentSubscriptions.length && <p className="empty-state">لا توجد اشتراكات نشطة.</p>}
+        </div>
+      </section>
+
+      <section className="section-block">
+        <div className="section-heading"><div><span className="eyebrow">التنبيهات</span><h2>اليوم والقادم</h2></div><span className="section-count">{todayReminders.length + upcomingReminders.length} تنبيه</span></div>
+        <ReminderList reminders={reminders} today={today} compact/>
+      </section>
     </>
   );
 }
