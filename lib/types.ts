@@ -1,8 +1,11 @@
 export interface Payment {
   id: string;
+  customer_id: string;
+  subscription_id: string;
   amount: number | string;
   payment_date: string;
   notes: string | null;
+  created_at: string;
 }
 
 export interface Subscription {
@@ -23,14 +26,22 @@ export interface Customer {
   phone: string;
   notes: string | null;
   created_at: string;
+  updated_at?: string;
   subscriptions: Subscription[];
 }
 
-export interface ReminderView {
+export interface Reminder {
   id: string;
+  customer_id: string;
+  subscription_id: string;
+  days_before: number;
   scheduled_date: string;
   sent_at: string | null;
   status: "PENDING" | "DUE" | "SENT";
+  created_at: string;
+}
+
+export interface ReminderView extends Reminder {
   subscriptions: {
     status: string;
     subscription_name: string;
