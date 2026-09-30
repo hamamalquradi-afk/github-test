@@ -4,10 +4,11 @@ export function customerSearchQuery(searchParams: SearchParamsReader): string {
   return (searchParams.get("q") ?? "").trim();
 }
 
-export type LatestSearchResult<T> =
-  | { current: true; value: T; error?: never }
-  | { current: true; value?: never; error: unknown }
-  | { current: false; value?: T; error?: unknown };
+export type LatestSearchResult<T> = {
+  current: boolean;
+  value?: T;
+  error?: unknown;
+};
 
 export function createLatestSearchRunner<T>(load: (query: string) => Promise<T>) {
   let sequence = 0;
