@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { markReminderSent } from "./actions";
-import { daysRemaining, reminderMessage } from "../lib/domain";
+import { canSendReminder, daysRemaining, reminderMessage } from "../lib/domain";
 import type { ReminderView } from "../lib/types";
 
 export function ReminderList({ reminders, today }: { reminders: ReminderView[]; today: string }) {
@@ -27,12 +27,12 @@ function ReminderItem({ reminder, today }: { reminder: ReminderView; today: stri
   const status = sentAt ? "SENT" : reminder.status;
 
   async function send() {
-    if (sending || status === "SENT") return;
+    if (sending || !canSendReminder({ ...reminder, status })) return;
     setSending(true);
     setError("");
     try {
       if (!navigator.share) throw new Error("المشاركة غير مدعومة على هذا الجهاز");
-      await navigator.share({ text: reminderMessage(customer.name, subscription.subscription_name, subscription.end_date, remaining) });
+      await navigator.share({ text: reminderMessage(customer.name, subscription.subscription_name, subscription.end_date) });
       // A cancelled or rejected share never changes the database state.
       await markReminderSent(reminder.id);
       setSentAt(new Date().toISOString());
@@ -46,5 +46,5 @@ function ReminderItem({ reminder, today }: { reminder: ReminderView; today: stri
     }
   }
 
-  return <article className="reminder"><div><strong>{customer.name}</strong><p dir="ltr">{customer.phone}</p><p>{subscription.subscription_name} · ينتهي {subscription.end_date} · متبقي {remaining} أيام</p><p>موعد التنبيه: {reminder.scheduled_date.slice(0, 10)} · <span className={`badge ${status.toLowerCase()}`}>{status}</span></p>{(sentAt || reminder.sent_at) && <p>وقت الإرسال: <time dateTime={sentAt || reminder.sent_at!}>{sentAt || reminder.sent_at}</time></p>}{error && <p className="notice error" role="alert">{error}</p>}</div><button className="message-button" type="button" onClick={send} disabled={sending || status === "SENT"}>{status === "SENT" ? "تم الإرسال" : sending ? "جارٍ الإرسال…" : "إرسال رسالة"}</button></article>;
+  return <article className="reminder"><div><strong>{customer.name}</strong><p dir="ltr">{customer.phone}</p><p>{subscription.subscription_name} · ينتهي {subscription.end_date} · متبقي {remaining} أيام</p><p>موعد التنبيه: {reminder.scheduled_date.slice(0, 10)} · <span className={`badge ${status.toLowerCase()}`}>{status}</span></p>{(sentAt || reminder.sent_at) && <p>وقت الإرسال: <time dateTime={sentAt || reminder.sent_at!}>{sentAt || reminder.sent_at}</time></p>}{error && <p className="notice error" role="alert">{error}</p>}</div><button className="message-button" type="button" onClick={send} disabled={sending || !canSendReminder({ ...reminder, status })}>{status === "SENT" ? "تم الإرسال" : sending ? "جارٍ الإرسال…" : "إرسال رسالة"}</button></article>;
 }

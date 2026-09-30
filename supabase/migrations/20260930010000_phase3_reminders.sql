@@ -1,6 +1,52 @@
 begin;
 
--- Preserve every existing row; normalize the reminder workflow state only.
+-- Keep concurrent writes out while archiving exact legacy duplicate rows and
+-- installing the uniqueness rule. The whole migration is one transaction.
+lock table public.reminders in access exclusive mode;
+
+-- A separate immutable archive retains the full original duplicate row, including
+-- its id, original state, timestamps, type and sent_at. Prefer the earliest SENT
+-- row as canonical so a delivered reminder cannot become sendable again.
+create table public.reminder_duplicate_history (
+  original_id uuid primary key,
+  canonical_reminder_id uuid not null references public.reminders(id),
+  original_row jsonb not null,
+  archived_at timestamptz not null default now()
+);
+
+create temporary table phase3_duplicate_reminders on commit drop as
+select id, canonical_id from (
+  select id,
+    first_value(id) over reminder_group as canonical_id,
+    row_number() over reminder_group as position
+  from public.reminders
+  window reminder_group as (
+    partition by subscription_id, scheduled_date
+    order by sent_at asc nulls last, created_at asc, id asc
+  )
+) as ranked where position > 1;
+
+insert into public.reminder_duplicate_history (original_id, canonical_reminder_id, original_row)
+select reminder.id, duplicate.canonical_id, to_jsonb(reminder)
+from public.reminders as reminder
+join phase3_duplicate_reminders as duplicate on duplicate.id = reminder.id;
+
+-- Bypass only the delete guard, only for the exact duplicates already archived.
+-- Re-enable it before releasing the table lock; rollback restores it on failure.
+alter table public.reminders disable trigger reminders_prevent_delete;
+delete from public.reminders as reminder
+using phase3_duplicate_reminders as duplicate
+where reminder.id = duplicate.id;
+alter table public.reminders enable trigger reminders_prevent_delete;
+
+create trigger reminder_duplicate_history_prevent_delete
+before delete on public.reminder_duplicate_history
+for each row execute function public.prevent_historical_record_deletion();
+create trigger reminder_duplicate_history_prevent_update
+before update on public.reminder_duplicate_history
+for each row execute function public.prevent_historical_record_deletion();
+
+-- Normalize workflow state without altering the retained reminder details.
 update public.reminders
 set status = case when sent_at is not null then 'SENT'
   when scheduled_date <= now() then 'DUE' else 'PENDING' end;
@@ -95,7 +141,10 @@ begin
   insert into public.subscriptions (customer_id, subscription_name, amount, start_date, end_date, status)
   values (target_customer_id, target_name, target_amount, target_start_date, target_end_date, 'active')
   returning id into created_id;
-  perform public.create_subscription_reminders(created_id, reminder_days, target_customer_id);
+  -- Historical Phase 2 entry remains valid and creates no reminders.
+  if target_end_date >= (now() at time zone 'UTC')::date then
+    perform public.create_subscription_reminders(created_id, reminder_days, target_customer_id);
+  end if;
   return created_id;
 end;
 $$;
@@ -116,9 +165,25 @@ begin
     raise exception 'Historical reminder details cannot be overwritten'
       using errcode = 'integrity_constraint_violation';
   end if;
+  -- Guard direct table writes as well as the RPC. A PENDING reminder must first
+  -- become DUE through refresh_due_reminders, even if its date has now arrived.
+  if new.status = 'SENT' and old.status <> 'SENT' then
+    if old.status <> 'DUE' or old.scheduled_date > now() then
+      raise exception 'Only currently DUE reminders can be sent'
+        using errcode = 'check_violation';
+    end if;
+    if not exists (
+      select 1 from public.subscriptions
+      where id = old.subscription_id and lower(status) = 'active'
+        and end_date >= (now() at time zone 'UTC')::date
+    ) then
+      raise exception 'Cannot send reminders for inactive or expired subscriptions'
+        using errcode = 'check_violation';
+    end if;
+  end if;
   return new;
 end;
-$$;
+$;
 
 create trigger reminders_preserve_history
 before update on public.reminders
@@ -159,6 +224,10 @@ begin
     where id = target_reminder_id for update;
   -- Retrying a completed operation never overwrites the original sent_at.
   if reminder_record.status = 'SENT' then return; end if;
+  if reminder_record.status <> 'DUE' or reminder_record.scheduled_date > now() then
+    raise exception 'Only currently DUE reminders can be sent'
+      using errcode = 'check_violation';
+  end if;
   if lower(subscription_record.status) <> 'active' or
      subscription_record.end_date < (now() at time zone 'UTC')::date then
     raise exception 'Cannot send reminders for inactive or expired subscriptions'

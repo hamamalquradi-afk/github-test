@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertValidDates, currentSubscription, daysRemaining, effectiveSubscriptionStatus, parseReminderDays, paymentSummary, reminderDate, reminderMessage } from "../lib/domain.ts";
+import { canSendReminder, assertValidDates, currentSubscription, daysRemaining, effectiveSubscriptionStatus, parseReminderDays, paymentSummary, reminderDate, reminderMessage } from "../lib/domain.ts";
 
 test("new subscription is unpaid", () => {
   assert.deepEqual(paymentSummary(100, []), { totalPaid: 0, remaining: 100, status: "UNPAID" });
@@ -40,7 +40,7 @@ test("calculates reminder date without local timezone drift", () => {
 });
 
 test("creates the requested Arabic customer message", () => {
-  assert.equal(reminderMessage("أحمد", "الذهبي", "2026-10-20", 5), "مرحبًا أحمد، نذكرك بأن اشتراكك الذهبي سينتهي بتاريخ 2026-10-20. متبقي 5 أيام على انتهاء الاشتراك.");
+  assert.equal(reminderMessage("أحمد", "الذهبي", "2026-10-20", "2026-10-15"), "مرحبًا أحمد، نذكرك بأن اشتراكك الذهبي سينتهي بتاريخ 2026-10-20. متبقي 5 أيام على انتهاء الاشتراك.");
 });
 
 test("rejects empty entries, invalid numbers, and values outside SQL integer range", () => {
@@ -75,4 +75,33 @@ test("current subscription has explicit expired and upcoming fallbacks", () => {
   assert.equal(currentSubscription([next, past], "2026-09-30"), past);
   assert.equal(currentSubscription([next], "2026-09-30"), next);
   assert.equal(currentSubscription([], "2026-09-30"), undefined);
+});
+
+test("only currently due reminders expose send, including stale and forged states", () => {
+  const reminder = { status: "PENDING" as const, scheduled_date: "2026-10-15T00:00:00Z",
+    subscriptions: { status: "active", end_date: "2026-10-20" } };
+  assert.equal(canSendReminder(reminder, "2026-10-14"), false);
+  assert.equal(canSendReminder(reminder, "2026-10-15"), false);
+  assert.equal(canSendReminder({ ...reminder, status: "DUE" }, "2026-10-14"), false);
+  assert.equal(canSendReminder({ ...reminder, status: "DUE" }, "2026-10-15"), true);
+  assert.equal(canSendReminder({ ...reminder, status: "SENT" }, "2026-10-15"), false);
+  assert.equal(canSendReminder({ ...reminder, status: "DUE" }, "2026-10-21"), false);
+  assert.equal(canSendReminder({ ...reminder, status: "DUE",
+    subscriptions: { ...reminder.subscriptions, status: "inactive" } }, "2026-10-15"), false);
+});
+
+test("historical date ranges remain valid and display EXPIRED without changing payment history", () => {
+  assert.doesNotThrow(() => assertValidDates("2026-01-01", "2026-01-31"));
+  assert.equal(effectiveSubscriptionStatus("2026-01-31", "2026-09-30"), "EXPIRED");
+  const payments = [{ amount: 40 }, { amount: 60 }];
+  assert.deepEqual(paymentSummary(100, payments), { totalPaid: 100, remaining: 0, status: "PAID" });
+  assert.deepEqual(payments, [{ amount: 40 }, { amount: 60 }]);
+});
+
+test("Arabic message recomputes remaining days for each send date across midnight", () => {
+  assert.equal(reminderMessage("أحمد", "الذهبي", "2026-10-20", "2026-10-15"),
+    "مرحبًا أحمد، نذكرك بأن اشتراكك الذهبي سينتهي بتاريخ 2026-10-20. متبقي 5 أيام على انتهاء الاشتراك.");
+  assert.equal(reminderMessage("أحمد", "الذهبي", "2026-10-20", "2026-10-16"),
+    "مرحبًا أحمد، نذكرك بأن اشتراكك الذهبي سينتهي بتاريخ 2026-10-20. متبقي 4 أيام على انتهاء الاشتراك.");
+  assert.match(reminderMessage("أحمد", "الذهبي", "2026-10-20", "2026-10-20"), /متبقي 0 أيام/);
 });

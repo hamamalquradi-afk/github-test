@@ -66,7 +66,7 @@ test("Phase 3 creates subscriptions and reminders atomically and preserves earli
   assert.match(reminders, /create function public.create_subscription_with_reminders/);
   assert.match(reminders, /insert into public.subscriptions/);
   assert.match(reminders, /perform public.create_subscription_reminders\(created_id/);
-  assert.doesNotMatch(reminders, /delete from|drop table|update public.subscriptions|update public.payments/);
+  assert.doesNotMatch(reminders, /delete from public\.(?:customers|subscriptions|payments)|drop table|update public.subscriptions|update public.payments/);
   assert.match(reminders, /reminders_preserve_history before update/);
   assert.match(reminders, /new.scheduled_date is distinct from old.scheduled_date/);
 });
@@ -83,4 +83,35 @@ test("Phase 3 sent recording is idempotent and preserves original sent time", ()
   assert.match(reminders, /if reminder_record.status = 'sent' then return/);
   assert.match(reminders, /set status = 'sent', sent_at = now\(\)/);
   assert.match(reminders, /old.status = 'sent'/);
+});
+
+test("legacy duplicates are archived before targeted removal and uniqueness", () => {
+  const archive = reminders.indexOf("insert into public.reminder_duplicate_history");
+  const removal = reminders.indexOf("delete from public.reminders");
+  const unique = reminders.indexOf("add constraint reminders_subscription_schedule_unique");
+  assert.ok(archive >= 0 && archive < removal && removal < unique);
+  assert.match(reminders, /lock table public.reminders in access exclusive mode/);
+  assert.match(reminders, /partition by subscription_id, scheduled_date/);
+  assert.match(reminders, /order by sent_at asc nulls last, created_at asc, id asc/);
+  assert.match(reminders, /to_jsonb\(reminder\)/);
+  assert.match(reminders, /where reminder.id = duplicate.id/);
+  assert.match(reminders, /enable trigger reminders_prevent_delete/);
+  assert.match(reminders, /reminder_duplicate_history_prevent_update/);
+});
+
+test("RPC and direct-update trigger reject PENDING and future reminders", () => {
+  assert.match(reminders, /reminder_record.status <> 'due' or reminder_record.scheduled_date > now\(\)/);
+  assert.match(reminders, /old.status <> 'due' or old.scheduled_date > now\(\)/);
+});
+
+test("historical subscription creation skips reminder generation", () => {
+  assert.match(reminders, /if target_end_date >= \(now\(\) at time zone 'utc'\)::date then perform public.create_subscription_reminders/);
+});
+
+const reminderUI = await readFile(new URL("../app/reminder-list.tsx", import.meta.url), "utf8");
+test("share uses a fresh message and both handler and button check eligibility", () => {
+  assert.match(reminderUI, /if \(sending \|\| !canSendReminder/);
+  assert.match(reminderUI, /disabled=\{sending \|\| !canSendReminder/);
+  assert.match(reminderUI, /reminderMessage\(customer.name, subscription.subscription_name, subscription.end_date\)/);
+  assert.ok(reminderUI.indexOf("await navigator.share") < reminderUI.indexOf("await markReminderSent"));
 });

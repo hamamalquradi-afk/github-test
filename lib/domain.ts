@@ -59,7 +59,22 @@ export function effectiveSubscriptionStatus(endDate: string, today: string): "AC
   return endDate < today ? "EXPIRED" : "ACTIVE";
 }
 
-export function reminderMessage(customerName: string, subscriptionName: string, endDate: string, remaining: number): string {
+export function utcToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function canSendReminder(
+  reminder: { status: ReminderStatus; scheduled_date: string; subscriptions: { status: string; end_date: string } },
+  today: string = utcToday(),
+): boolean {
+  return reminder.status === "DUE"
+    && reminder.scheduled_date.slice(0, 10) <= today
+    && reminder.subscriptions.status.toLowerCase() === "active"
+    && effectiveSubscriptionStatus(reminder.subscriptions.end_date, today) === "ACTIVE";
+}
+
+export function reminderMessage(customerName: string, subscriptionName: string, endDate: string, today: string = utcToday()): string {
+  const remaining = daysRemaining(endDate, today);
   return `مرحبًا ${customerName}، نذكرك بأن اشتراكك ${subscriptionName} سينتهي بتاريخ ${endDate}. متبقي ${remaining} أيام على انتهاء الاشتراك.`;
 }
 
