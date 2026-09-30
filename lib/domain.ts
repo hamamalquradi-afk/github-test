@@ -1,3 +1,5 @@
+import { localToday } from "./local-date.ts";
+
 export type SubscriptionStatus = "UNPAID" | "PARTIAL" | "PAID";
 export type ReminderStatus = "PENDING" | "DUE" | "SENT";
 
@@ -59,13 +61,9 @@ export function effectiveSubscriptionStatus(endDate: string, today: string): "AC
   return endDate < today ? "EXPIRED" : "ACTIVE";
 }
 
-export function utcToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function canSendReminder(
   reminder: { status: ReminderStatus; scheduled_date: string; subscriptions: { status: string; end_date: string } },
-  today: string = utcToday(),
+  today: string = localToday(),
 ): boolean {
   return reminder.status === "DUE"
     && reminder.scheduled_date.slice(0, 10) <= today
@@ -73,7 +71,7 @@ export function canSendReminder(
     && effectiveSubscriptionStatus(reminder.subscriptions.end_date, today) === "ACTIVE";
 }
 
-export function reminderMessage(customerName: string, subscriptionName: string, endDate: string, today: string = utcToday()): string {
+export function reminderMessage(customerName: string, subscriptionName: string, endDate: string, today: string = localToday()): string {
   const remaining = daysRemaining(endDate, today);
   return `مرحبًا ${customerName}، نذكرك بأن اشتراكك ${subscriptionName} سينتهي بتاريخ ${endDate}. متبقي ${remaining} أيام على انتهاء الاشتراك.`;
 }
