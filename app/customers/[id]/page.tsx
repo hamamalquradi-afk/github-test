@@ -5,10 +5,10 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { addPayment, addSubscription, configureReminders, renewSubscription, updateCustomer } from "../../actions";
 import { currentSubscription, effectiveSubscriptionStatus, paymentSummary } from "../../../lib/domain";
+import { localToday } from "../../../lib/local-date";
 import { getCustomer, getCustomerReminders } from "../../../lib/data";
 import type { Customer, ReminderView, Subscription } from "../../../lib/types";
 
-const today = () => new Date().toISOString().slice(0, 10);
 type Mutation = (data: FormData) => Promise<unknown>;
 
 export default function CustomerPage() {
@@ -43,7 +43,7 @@ export default function CustomerPage() {
   if (loading) return <p className="empty-state">جارٍ تحميل البيانات المحلية…</p>;
   if (!customer) return <><Link href="/customers" className="back">← قائمة العملاء</Link><p className="notice error">العميل غير موجود أو تعذر قراءة سجله المحلي.</p></>;
 
-  const date = today();
+  const date = localToday();
   const current = currentSubscription(customer.subscriptions, date);
   const expired = current ? effectiveSubscriptionStatus(current.end_date, date) === "EXPIRED" : false;
   const summary = current ? paymentSummary(current.amount, current.payments) : null;
