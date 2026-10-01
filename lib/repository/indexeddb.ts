@@ -1,5 +1,6 @@
 import { createBackupDocument, validateBackup, type BackupDocument, type BackupCustomer, type BackupSubscription } from "../backup.ts";
 import { parseReminderDays, reminderDate } from "../domain.ts";
+import { localToday } from "../local-date.ts";
 import type { Customer, Payment, Reminder, ReminderView, Subscription } from "../types.ts";
 
 const DATABASE_NAME = "subscription-collection-tracker";
@@ -45,10 +46,6 @@ function uuid(): string {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function ensureIndexedDb(): IDBFactory {
@@ -206,7 +203,7 @@ function makeReminder(subscription: Subscription, daysBefore: number, timestamp:
   return {
     id: uuid(), customer_id: subscription.customer_id, subscription_id: subscription.id,
     days_before: daysBefore, scheduled_date: `${scheduledDate}T00:00:00.000Z`,
-    status: scheduledDate <= todayUtc() ? "DUE" : "PENDING", sent_at: null, created_at: timestamp,
+    status: scheduledDate <= localToday() ? "DUE" : "PENDING", sent_at: null, created_at: timestamp,
   };
 }
 
@@ -233,7 +230,7 @@ export async function createSubscription(input: {
   const persisted = { ...subscription } as Partial<Subscription>;
   delete persisted.payments;
   tx.objectStore(STORES.subscriptions).add(persisted);
-  if (input.end_date >= todayUtc()) {
+  if (input.end_date >= localToday()) {
     const reminders = tx.objectStore(STORES.reminders);
     for (const day of days) reminders.add(makeReminder(subscription, day, timestamp));
   }
@@ -250,7 +247,7 @@ export async function configureReminders(subscriptionId: string, customerId: str
     tx.abort();
     throw new Error("الاشتراك غير مرتبط بهذا العميل");
   }
-  if (subscription.status.toLowerCase() !== "active" || subscription.end_date < todayUtc()) {
+  if (subscription.status.toLowerCase() !== "active" || subscription.end_date < localToday()) {
     tx.abort();
     throw new Error("يمكن إنشاء التنبيهات للاشتراكات النشطة فقط");
   }
@@ -339,7 +336,7 @@ export async function getReminders(today: string): Promise<ReminderView[]> {
 
 export async function getCustomerReminders(customerId: string): Promise<ReminderView[]> {
   const db = await openLocalDatabase();
-  await refreshDueReminders(db, todayUtc());
+  await refreshDueReminders(db, localToday());
   return reminderViews(customerId);
 }
 
@@ -357,7 +354,7 @@ export async function markReminderSent(reminderId: string): Promise<void> {
     return;
   }
   const subscription = await request(tx.objectStore(STORES.subscriptions).get(reminder.subscription_id), "تعذر قراءة الاشتراك.") as Subscription | undefined;
-  const today = todayUtc();
+  const today = localToday();
   if (reminder.status !== "DUE" || reminder.scheduled_date.slice(0, 10) > today || !subscription || subscription.status.toLowerCase() !== "active" || subscription.end_date < today) {
     tx.abort();
     throw new Error("يمكن إرسال التنبيهات المستحقة حاليًا فقط");

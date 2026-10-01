@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { currentSubscription, effectiveSubscriptionStatus, paymentSummary } from "../lib/domain";
+import { localToday } from "../lib/local-date";
 import { getCustomers, getReminders } from "../lib/data";
 import type { Customer, ReminderView } from "../lib/types";
 import { ReminderList } from "./reminder-list";
 
 export default function Home() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [reminders, setReminders] = useState<ReminderView[]>([]);
   const [error, setError] = useState("");

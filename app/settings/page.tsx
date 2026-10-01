@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useRef, useState } from "react";
+import { supportsFileShare } from "../../lib/browser-fallbacks";
 import { backupFilename, parseBackupJson, serializeBackup, type BackupDocument } from "../../lib/backup";
 import { exportAllData, restoreBackup } from "../../lib/repository/indexeddb";
 
@@ -18,6 +19,8 @@ function downloadFile(file: File): void {
 export default function SettingsPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [backupFile, setBackupFile] = useState<File | null>(null);
+  const [shareAvailable, setShareAvailable] = useState(false);
+  const [shareNotice, setShareNotice] = useState("");
   const [pending, setPending] = useState<PendingRestore | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -27,12 +30,16 @@ export default function SettingsPage() {
     setBusy(true);
     setError("");
     setNotice("");
+    setShareNotice("");
     try {
       const backup = await exportAllData();
       const file = new File([serializeBackup(backup)], backupFilename(backup.exportedAt), { type: "application/json" });
+      const canShare = supportsFileShare(typeof navigator === "undefined" ? undefined : navigator, file);
       setBackupFile(file);
+      setShareAvailable(canShare);
       downloadFile(file);
       setNotice("تم إنشاء النسخة الاحتياطية وتنزيلها على الجهاز.");
+      if (!canShare) setShareNotice("المشاركة غير متاحة في هذا المتصفح، ويمكنك استخدام الملف الذي تم تنزيله.");
     } catch (value) {
       setError(value instanceof Error ? value.message : "تعذر إنشاء النسخة الاحتياطية");
     } finally {
@@ -45,8 +52,9 @@ export default function SettingsPage() {
     setError("");
     try {
       const shareData = { files: [backupFile], title: "نسخة احتياطية لمتابعة الاشتراكات" };
-      if (!navigator.share || (navigator.canShare && !navigator.canShare(shareData))) {
-        setError("مشاركة الملفات غير مدعومة على هذا الجهاز. استخدم الملف الذي تم تنزيله.");
+      if (!supportsFileShare(typeof navigator === "undefined" ? undefined : navigator, backupFile)) {
+        setShareAvailable(false);
+        setShareNotice("المشاركة غير متاحة في هذا المتصفح، ويمكنك استخدام الملف الذي تم تنزيله.");
         return;
       }
       await navigator.share(shareData);
@@ -81,6 +89,8 @@ export default function SettingsPage() {
       await restoreBackup(pending.backup);
       setPending(null);
       setBackupFile(null);
+      setShareAvailable(false);
+      setShareNotice("");
       setNotice("تمت استعادة النسخة الاحتياطية واستبدال البيانات المحلية بنجاح.");
     } catch (value) {
       setError(value instanceof Error ? value.message : "تعذر استعادة النسخة الاحتياطية");
@@ -93,6 +103,7 @@ export default function SettingsPage() {
     <section className="page-heading"><div><span className="eyebrow">الإعدادات</span><h1>النسخ الاحتياطي والاستعادة</h1><p>احفظ نسخة محلية كاملة من بياناتك أو استعد نسخة سابقة بعد التحقق منها.</p></div></section>
     {error && <p className="notice error" role="alert">{error}</p>}
     {notice && <p className="notice success">{notice}</p>}
+    {shareNotice && <p className="notice">{shareNotice}</p>}
 
     <section className="backup-grid">
       <article className="card backup-card">
@@ -101,7 +112,7 @@ export default function SettingsPage() {
         <div className="backup-actions">
           <button className="primary" type="button" onClick={createBackup} disabled={busy}>{busy ? "جارٍ الإنشاء…" : "إنشاء نسخة احتياطية"}</button>
           {backupFile && <button type="button" onClick={() => downloadFile(backupFile)}>تنزيل الملف مرة أخرى</button>}
-          {backupFile && <button type="button" onClick={shareBackup}>مشاركة / حفظ عبر الجهاز</button>}
+          {backupFile && shareAvailable && <button type="button" onClick={shareBackup}>مشاركة / حفظ عبر الجهاز</button>}
         </div>
         <p className="privacy-note">لا يتم رفع الملف تلقائيًا لأي خدمة. إذا ظهر Google Drive في واجهة المشاركة أو الحفظ على جهازك، يمكنك اختياره يدويًا.</p>
       </article>
