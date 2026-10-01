@@ -5,6 +5,7 @@ import {
   configureReminders as saveReminderConfiguration,
   createCustomer,
   createPayment,
+  deleteCustomer as removeCustomerRecord,
   createSubscription,
   markReminderSent as saveReminderSent,
   updateCustomer as saveCustomer,
@@ -58,4 +59,9 @@ export async function addPayment(data: FormData): Promise<string> {
     customer_id: required(data, "customer_id", "العميل"), subscription_id: required(data, "subscription_id", "الاشتراك"),
     amount: assertValidAmount(data.get("amount"), "الدفعة"), payment_date: required(data, "payment_date", "تاريخ الدفعة"), notes: text(data, "notes") || null,
   });
+}
+
+
+export async function deleteCustomer(customerId: string): Promise<void> {
+  await removeCustomerRecord(customerId);
 }
