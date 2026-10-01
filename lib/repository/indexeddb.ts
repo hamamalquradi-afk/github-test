@@ -158,6 +158,25 @@ export async function getCustomer(id: string): Promise<Customer | null> {
   return customer ? hydrateCustomer(db, customer) : null;
 }
 
+export function normalizeCustomerPhone(phone: string): string {
+  return phone.trim().replace(/[\s-]+/g, "");
+}
+
+async function assertUniqueCustomerPhone(
+  store: IDBObjectStore,
+  phone: string,
+  currentCustomerId?: string,
+): Promise<void> {
+  const normalized = normalizeCustomerPhone(phone);
+  const customers = await all<ArrayValueCustomer>(store, "تعذر التحقق من رقم الهاتف.");
+  const duplicate = customers.find((customer) =>
+    customer.id !== currentCustomerId && normalizeCustomerPhone(customer.phone) === normalized,
+  );
+  if (duplicate) throw new Error("يوجد عميل مسجل بهذا الرقم بالفعل.");
+}
+
+type ArrayValueCustomer = Omit<Customer, "subscriptions">;
+
 export async function createCustomer(input: { name: string; phone: string; notes?: string | null }): Promise<string> {
   const name = input.name.trim();
   const phone = input.phone.trim();
@@ -165,11 +184,18 @@ export async function createCustomer(input: { name: string; phone: string; notes
   if (!phone) throw new Error("الهاتف مطلوب");
   const db = await openLocalDatabase();
   const tx = db.transaction(STORES.customers, "readwrite");
-  const timestamp = nowIso();
-  const customer = { id: uuid(), name, phone, notes: input.notes?.trim() || null, created_at: timestamp, updated_at: timestamp };
-  tx.objectStore(STORES.customers).add(customer);
-  await transactionDone(tx);
-  return customer.id;
+  const store = tx.objectStore(STORES.customers);
+  try {
+    await assertUniqueCustomerPhone(store, phone);
+    const timestamp = nowIso();
+    const customer = { id: uuid(), name, phone, notes: input.notes?.trim() || null, created_at: timestamp, updated_at: timestamp };
+    store.add(customer);
+    await transactionDone(tx);
+    return customer.id;
+  } catch (error) {
+    try { tx.abort(); } catch {}
+    throw error;
+  }
 }
 
 export async function updateCustomer(id: string, input: { name: string; phone: string; notes?: string | null }): Promise<void> {
@@ -180,13 +206,94 @@ export async function updateCustomer(id: string, input: { name: string; phone: s
   const db = await openLocalDatabase();
   const tx = db.transaction(STORES.customers, "readwrite");
   const store = tx.objectStore(STORES.customers);
-  const current = await request(store.get(id), "تعذر قراءة بيانات العميل.") as Omit<Customer, "subscriptions"> | undefined;
-  if (!current) {
-    tx.abort();
+  try {
+    const current = await request(store.get(id), "تعذر قراءة بيانات العميل.") as Omit<Customer, "subscriptions"> | undefined;
+    if (!current) throw new Error("العميل غير موجود");
+    await assertUniqueCustomerPhone(store, phone, id);
+    store.put({ ...current, name, phone, notes: input.notes?.trim() || null, updated_at: nowIso() });
+    await transactionDone(tx);
+  } catch (error) {
+    try { tx.abort(); } catch {}
+    throw error;
+  }
+}
+
+export interface CustomerDeletionSummary {
+  customer_id: string;
+  customer_name: string;
+  subscriptions: number;
+  payments: number;
+  reminders: number;
+}
+
+async function customerDeletionData(db: IDBDatabase, customerId: string): Promise<{
+  customer: Omit<Customer, "subscriptions">;
+  subscriptions: Subscription[];
+  payments: Payment[];
+  reminders: Reminder[];
+}> {
+  const tx = db.transaction([STORES.customers, STORES.subscriptions, STORES.payments, STORES.reminders], "readonly");
+  const customer = await request(tx.objectStore(STORES.customers).get(customerId), "تعذر قراءة بيانات العميل.") as Omit<Customer, "subscriptions"> | undefined;
+  if (!customer) {
+    await transactionDone(tx);
     throw new Error("العميل غير موجود");
   }
-  store.put({ ...current, name, phone, notes: input.notes?.trim() || null, updated_at: nowIso() });
+  const [subscriptions, payments, reminders] = await Promise.all([
+    byIndex<Subscription>(tx.objectStore(STORES.subscriptions), "customer_id", customerId, "تعذر قراءة اشتراكات العميل."),
+    byIndex<Payment>(tx.objectStore(STORES.payments), "customer_id", customerId, "تعذر قراءة دفعات العميل."),
+    byIndex<Reminder>(tx.objectStore(STORES.reminders), "customer_id", customerId, "تعذر قراءة تنبيهات العميل."),
+  ]);
   await transactionDone(tx);
+  return { customer, subscriptions, payments, reminders };
+}
+
+export async function getCustomerDeletionSummary(customerId: string): Promise<CustomerDeletionSummary | null> {
+  const db = await openLocalDatabase();
+  try {
+    const data = await customerDeletionData(db, customerId);
+    return {
+      customer_id: customerId,
+      customer_name: data.customer.name,
+      subscriptions: data.subscriptions.length,
+      payments: data.payments.length,
+      reminders: data.reminders.length,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === "العميل غير موجود") return null;
+    throw error;
+  }
+}
+
+export async function deleteCustomer(customerId: string): Promise<void> {
+  const db = await openLocalDatabase();
+  const tx = db.transaction([STORES.customers, STORES.subscriptions, STORES.payments, STORES.reminders], "readwrite");
+  const completion = transactionDone(tx);
+  try {
+    const customers = tx.objectStore(STORES.customers);
+    const subscriptions = tx.objectStore(STORES.subscriptions);
+    const payments = tx.objectStore(STORES.payments);
+    const reminders = tx.objectStore(STORES.reminders);
+
+    const customer = await request(customers.get(customerId), "تعذر قراءة بيانات العميل.") as Omit<Customer, "subscriptions"> | undefined;
+    if (!customer) throw new Error("العميل غير موجود");
+
+    const [subscriptionRows, paymentRows, reminderRows] = await Promise.all([
+      byIndex<Subscription>(subscriptions, "customer_id", customerId, "تعذر قراءة اشتراكات العميل."),
+      byIndex<Payment>(payments, "customer_id", customerId, "تعذر قراءة دفعات العميل."),
+      byIndex<Reminder>(reminders, "customer_id", customerId, "تعذر قراءة تنبيهات العميل."),
+    ]);
+
+    for (const item of reminderRows) await request(reminders.delete(item.id), "تعذر حذف تنبيه تابع للعميل.");
+    for (const item of paymentRows) await request(payments.delete(item.id), "تعذر حذف دفعة تابعة للعميل.");
+    for (const item of subscriptionRows) await request(subscriptions.delete(item.id), "تعذر حذف اشتراك تابع للعميل.");
+    await request(customers.delete(customerId), "تعذر حذف العميل.");
+    await completion;
+  } catch (error) {
+    try { tx.abort(); } catch {}
+    try { await completion; } catch {}
+    if (error instanceof Error && error.message === "العميل غير موجود") throw error;
+    throw localError("تعذر حذف العميل نهائيًا. لم يتم حذف أي جزء من سجله.", error);
+  }
 }
 
 function assertDateRange(startDate: string, endDate: string): void {
