@@ -14,6 +14,9 @@ const pkg = await readFile(new URL("../package.json", import.meta.url), "utf8");
 const settings = await readFile(new URL("../app/settings/page.tsx", import.meta.url), "utf8");
 const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
 const backup = await readFile(new URL("../lib/backup.ts", import.meta.url), "utf8");
+const domain = await readFile(new URL("../lib/domain.ts", import.meta.url), "utf8");
+const localDate = await readFile(new URL("../lib/local-date.ts", import.meta.url), "utf8");
+const browserFallbacks = await readFile(new URL("../lib/browser-fallbacks.ts", import.meta.url), "utf8");
 
 test("Phase 4 keeps mobile layouts primary and desktop tables progressive", () => {
   assert.match(css, /\.customer-cards\{display:grid/);
@@ -46,17 +49,19 @@ test("customer details preserve actions and expose all histories", () => {
   for (const label of ["إضافة دفعة", "تجديد الاشتراك", "تعديل العميل", "سجل الاشتراكات", "سجل الدفعات", "سجل التنبيهات"]) assert.match(detail, new RegExp(label));
 });
 
-test("reminder cards retain Web Share send behavior", () => {
-  assert.match(reminders, /await navigator\.share/);
+test("reminder cards retain Web Share success behavior and SENT protection", () => {
+  assert.match(reminders, /shareReminderMessage/);
+  assert.match(reminders, /navigator\.share\.bind\(navigator\)/);
   assert.match(reminders, /await markReminderSent/);
-  assert.match(reminders, /disabled=\{sending \|\| !canSendReminder/);
-  assert.ok(reminders.indexOf("await navigator.share") < reminders.indexOf("await markReminderSent"));
+  assert.match(reminders, /disabled=\{sending \|\| !eligible/);
+  assert.ok(browserFallbacks.indexOf("await share") < browserFallbacks.indexOf("await onShared"));
 });
 
 test("compact reminder UI keeps overdue unsent reminders visible and eligibility-gated", () => {
   assert.match(reminders, /التنبيهات المتأخرة/);
   assert.match(reminders, /!compact \|\| index < 3/);
-  assert.match(reminders, /disabled=\{sending \|\| !canSendReminder/);
+  assert.match(reminders, /const eligible = canSendReminder/);
+  assert.match(reminders, /disabled=\{sending \|\| !eligible/);
 });
 
 test("add-customer failures remain on customers page and expose the error", () => {
@@ -85,4 +90,37 @@ test("Phase 6 backup and restore UI is explicit, local-only and storage-isolated
   assert.doesNotMatch(settings, /indexedDB|objectStore/);
   assert.doesNotMatch(settings + backup, /googleapis|accounts\.google|oauth/i);
   assert.match(layout, /href="\/settings">الإعدادات/);
+});
+
+
+test("Phase 7A uses local business date consistently in runtime decision points", () => {
+  assert.match(localDate, /getFullYear\(\)/);
+  assert.match(localDate, /getMonth\(\)/);
+  assert.match(localDate, /getDate\(\)/);
+  assert.match(home, /const today = localToday\(\)/);
+  assert.match(customers, /const today = localToday\(\)/);
+  assert.match(detail, /const date = localToday\(\)/);
+  assert.match(domain, /today: string = localToday\(\)/);
+  assert.match(repository, /localToday\(\)/);
+  assert.doesNotMatch(home + customers + detail, /toISOString\(\)\.slice\(0, 10\)/);
+  assert.doesNotMatch(domain + repository, /utcToday|todayUtc/);
+});
+
+test("Phase 7A exposes copy fallback without treating copy as SENT", () => {
+  assert.match(reminders, /نسخ الرسالة/);
+  assert.match(reminders, /نص رسالة التذكير/);
+  assert.match(reminders, /تم نسخ الرسالة\. لم يتم تعليم التنبيه كمرسل\./);
+  assert.match(reminders, /messageRef/);
+  assert.match(browserFallbacks, /AbortError/);
+  const copyBlock = reminders.slice(reminders.indexOf("async function copyMessage"), reminders.indexOf("return <article"));
+  assert.doesNotMatch(copyBlock, /markReminderSent/);
+  assert.doesNotMatch(browserFallbacks, /markReminderSent/);
+});
+
+test("Phase 7A backup creation remains download-first when file sharing is unavailable", () => {
+  assert.match(settings, /downloadFile\(file\)/);
+  assert.match(settings, /backupFile && shareAvailable/);
+  assert.match(settings, /المشاركة غير متاحة في هذا المتصفح/);
+  assert.match(settings, /تم إنشاء النسخة الاحتياطية وتنزيلها على الجهاز/);
+  assert.match(settings, /supportsFileShare/);
 });
