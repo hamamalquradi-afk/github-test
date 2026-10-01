@@ -123,7 +123,7 @@ function validateCounts(value: unknown, data: BackupData): BackupCounts {
 
 export function validateBackup(value: unknown): BackupDocument {
   const root = record(value, "ملف النسخة الاحتياطية");
-  if (root.app !== BACKUP_APP) fail("هذه النسخة لا تخص تطبيق متابعة الاشتراكات");
+  if (root.app !== BACKUP_APP) fail("هذه النسخة لا تخص HAMNOVA");
   if (root.backupVersion !== BACKUP_VERSION) {
     fail(typeof root.backupVersion === "number" && root.backupVersion > BACKUP_VERSION
       ? "إصدار النسخة الاحتياطية أحدث من الإصدار المدعوم"
