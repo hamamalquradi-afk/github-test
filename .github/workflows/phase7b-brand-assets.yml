@@ -1,0 +1,42 @@
+name: Assemble Phase 7B Branding Assets
+
+on:
+  push:
+    branches: ["phase-7b-hamnova-customer-management"]
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: phase-7b-hamnova-customer-management
+
+      - name: Assemble approved HAMNOVA assets when all chunks exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f asset-chunks/READY ]; then
+            echo "Brand asset chunks are still being uploaded."
+            exit 0
+          fi
+
+          mkdir -p public/branding
+          cat asset-chunks/icon/chunk_* | base64 --decode > public/branding/hamnova-icon.png
+          cat asset-chunks/logo/chunk_* | base64 --decode > public/branding/hamnova-logo.png
+
+          echo "f7bdd4011f46c6b52019b53358b91360b965a983612f4fbc4026b0c6c96adbbb  public/branding/hamnova-icon.png" | sha256sum -c -
+          echo "f5b1606b1786e091ccc564ad300180ac7869a7014248f050e4f5f696ae88b84e  public/branding/hamnova-logo.png" | sha256sum -c -
+
+          rm -rf asset-chunks
+          rm -f .github/workflows/phase7b-brand-assets.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Phase 7B: add approved HAMNOVA brand assets"
+          git push origin HEAD:phase-7b-hamnova-customer-management
