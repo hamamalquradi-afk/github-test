@@ -108,7 +108,7 @@ test("customer sorting supports name remaining and nearest end date", () => {
 });
 
 test("search result input can be filtered and sorted without changing search semantics", () => {
-  const searchResults = rowsSource.filter((item) => item.name.includes("أ") || item.name.includes("د"));
+  const searchResults = rowsSource.filter((item) => item.id === "1" || item.id === "4");
   const built = buildCustomerRows(searchResults, today, "all", "name");
   assert.deepEqual(built.map((row) => row.customer.name), ["أحمد", "دانا"]);
 });
