@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { addPayment, addSubscription, configureReminders, renewSubscription, updateCustomer } from "../../actions";
-import { currentSubscription, effectiveSubscriptionStatus, paymentSummary } from "../../../lib/domain";
+import { CUSTOMER_STATUS_LABELS, customerRowView, formatAmount } from "../../../lib/customer-management";
+import { effectiveSubscriptionStatus, paymentSummary } from "../../../lib/domain";
 import { localToday } from "../../../lib/local-date";
 import { getCustomer, getCustomerReminders } from "../../../lib/data";
 import type { Customer, ReminderView, Subscription } from "../../../lib/types";
@@ -19,6 +20,9 @@ export default function CustomerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const paymentRef = useRef<HTMLDetailsElement>(null);
+  const renewRef = useRef<HTMLDetailsElement>(null);
+  const editRef = useRef<HTMLDetailsElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -27,12 +31,29 @@ export default function CustomerPage() {
     } catch (value) { setError(value instanceof Error ? value.message : "تعذر قراءة بيانات العميل"); }
     finally { setLoading(false); }
   }, [id]);
+
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     setError(query.get("error") ?? "");
     setSuccess(query.get("success") ?? "");
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!customer) return;
+    const query = new URLSearchParams(window.location.search);
+    const target = query.get("edit") === "1"
+      ? editRef.current
+      : query.get("action") === "payment"
+        ? paymentRef.current
+        : query.get("action") === "renew"
+          ? renewRef.current
+          : null;
+    if (target) {
+      target.open = true;
+      requestAnimationFrame(() => target.scrollIntoView({ block: "center", behavior: "smooth" }));
+    }
+  }, [customer]);
 
   const mutate = (action: Mutation, message: string) => async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setError(""); setSuccess("");
@@ -44,27 +65,84 @@ export default function CustomerPage() {
   if (!customer) return <><Link href="/customers" className="back">← قائمة العملاء</Link><p className="notice error">العميل غير موجود أو تعذر قراءة سجله المحلي.</p></>;
 
   const date = localToday();
-  const current = currentSubscription(customer.subscriptions, date);
-  const expired = current ? effectiveSubscriptionStatus(current.end_date, date) === "EXPIRED" : false;
+  const view = customerRowView(customer, date);
+  const current = view.current;
+  const expired = view.status === "EXPIRED";
   const summary = current ? paymentSummary(current.amount, current.payments) : null;
 
   return <>
     <Link href="/customers" className="back">← قائمة العملاء</Link>
-    <section className="customer-hero"><div className="customer-identity"><span className="eyebrow">بيانات العميل</span><h1>{customer.name}</h1><p dir="ltr">{customer.phone}</p>{customer.notes && <p className="customer-notes">{customer.notes}</p>}</div>{expired ? <span className="badge expired">EXPIRED</span> : summary && <span className={`badge ${summary.status.toLowerCase()}`}>{summary.status}</span>}</section>
+    <section className="customer-hero">
+      <div className="customer-identity"><span className="eyebrow">بيانات العميل</span><h1>{customer.name}</h1><p dir="ltr">{customer.phone}</p>{customer.notes && <p className="customer-notes">{customer.notes}</p>}</div>
+      <span className={`badge status-${view.status.toLowerCase()}`}>{view.statusLabel}</span>
+    </section>
     {error && <p className="notice error" role="alert">{error}</p>}{success && <p className="notice success">{success}</p>}
 
-    {current ? <section className="current-subscription"><div className="section-heading"><div><span className="eyebrow">الاشتراك الحالي</span><h2>{current.subscription_name}</h2></div></div><div className="detail-stats"><Stat label="المتبقي" value={summary!.remaining.toFixed(2)}/><Stat label="تاريخ الانتهاء" value={current.end_date}/><Stat label="إجمالي المدفوع" value={summary!.totalPaid.toFixed(2)}/><Stat label="قيمة الاشتراك" value={Number(current.amount).toFixed(2)}/></div></section> : <section className="card"><h2>إضافة اشتراك</h2><SubscriptionForm onSubmit={mutate(addSubscription, "تمت إضافة الاشتراك")} customerId={id}/></section>}
+    {current ? <section className="current-subscription">
+      <div className="section-heading"><div><span className="eyebrow">الاشتراك الحالي</span><h2>{current.subscription_name}</h2></div></div>
+      <div className="detail-stats">
+        <Stat label="المتبقي" value={formatAmount(summary!.remaining)}/>
+        <Stat label="تاريخ الانتهاء" value={current.end_date}/>
+        <Stat label="إجمالي المدفوع" value={formatAmount(summary!.totalPaid)}/>
+        <Stat label="قيمة الاشتراك" value={formatAmount(current.amount)}/>
+      </div>
+    </section> : <section className="card"><h2>إضافة اشتراك</h2><SubscriptionForm onSubmit={mutate(addSubscription, "تمت إضافة الاشتراك")} customerId={id}/></section>}
 
-    <section className="section-block"><div className="section-heading"><div><span className="eyebrow">إجراءات سريعة</span><h2>إدارة العميل</h2></div></div><div className="quick-actions">
-      {current && <details className="card action-card"><summary>+ إضافة دفعة</summary><form onSubmit={mutate(addPayment, "تم تسجيل الدفعة")} className="form-grid"><input type="hidden" name="customer_id" value={id}/><input type="hidden" name="subscription_id" value={current.id}/><label>قيمة الدفعة<input name="amount" type="number" min="0" max={summary!.remaining} step="0.01" required/></label><label>تاريخ الدفعة<input name="payment_date" type="date" defaultValue={date} required/></label><label className="wide">ملاحظات<textarea name="notes"/></label><button className="primary">تسجيل الدفعة</button></form></details>}
-      {current && <details className="card action-card"><summary>تجديد الاشتراك</summary><SubscriptionForm onSubmit={mutate(renewSubscription, "تم إنشاء اشتراك التجديد")} customerId={id} source={current}/></details>}
-      <details className="card action-card"><summary>تعديل العميل</summary><form onSubmit={mutate(updateCustomer, "تم تحديث بيانات العميل")} className="form-grid"><input type="hidden" name="customer_id" value={id}/><label>الاسم<input name="name" defaultValue={customer.name} required/></label><label>الهاتف<input name="phone" defaultValue={customer.phone} required/></label><label className="wide">ملاحظات<textarea name="notes" defaultValue={customer.notes ?? ""}/></label><button className="primary">حفظ التعديل</button></form></details>
-      {current && !expired && current.status.toLowerCase() === "active" && <details className="card action-card"><summary>إعدادات التنبيهات</summary><ReminderSettings onSubmit={mutate(configureReminders, "تم حفظ إعدادات التنبيهات")} customerId={id} subscriptionId={current.id}/></details>}
-    </div></section>
+    <section className="section-block">
+      <div className="section-heading"><div><span className="eyebrow">إجراءات سريعة</span><h2>إدارة العميل</h2></div></div>
+      <div className="quick-actions">
+        {current && summary!.remaining > 0 && <details ref={paymentRef} id="payment-action" className="card action-card">
+          <summary>+ إضافة دفعة</summary>
+          <form onSubmit={mutate(addPayment, "تم تسجيل الدفعة")} className="form-grid">
+            <input type="hidden" name="customer_id" value={id}/><input type="hidden" name="subscription_id" value={current.id}/>
+            <label>قيمة الدفعة<input name="amount" type="number" min="0" max={summary!.remaining} step="0.01" required/></label>
+            <label>تاريخ الدفعة<input name="payment_date" type="date" defaultValue={date} required/></label>
+            <label className="wide">ملاحظات<textarea name="notes"/></label>
+            <button className="primary">تسجيل الدفعة</button>
+          </form>
+        </details>}
+        {current && <details ref={renewRef} id="renew-action" className="card action-card">
+          <summary>تجديد الاشتراك</summary>
+          <SubscriptionForm onSubmit={mutate(renewSubscription, "تم إنشاء اشتراك التجديد")} customerId={id} source={current}/>
+        </details>}
+        <details ref={editRef} id="edit-customer" className="card action-card">
+          <summary>تعديل العميل</summary>
+          <form onSubmit={mutate(updateCustomer, "تم تحديث بيانات العميل")} className="form-grid">
+            <input type="hidden" name="customer_id" value={id}/>
+            <label>الاسم<input name="name" defaultValue={customer.name} required/></label>
+            <label>الهاتف<input name="phone" defaultValue={customer.phone} required/></label>
+            <label className="wide">ملاحظات<textarea name="notes" defaultValue={customer.notes ?? ""}/></label>
+            <button className="primary">حفظ التعديل</button>
+          </form>
+        </details>
+        {current && !expired && current.status.toLowerCase() === "active" && <details className="card action-card">
+          <summary>إعدادات التنبيهات</summary>
+          <ReminderSettings onSubmit={mutate(configureReminders, "تم حفظ إعدادات التنبيهات")} customerId={id} subscriptionId={current.id}/>
+        </details>}
+      </div>
+    </section>
 
-    <History title="سجل الاشتراكات">{customer.subscriptions.map((sub) => { const s = paymentSummary(sub.amount, sub.payments); return <article className="history-card" key={sub.id}><div className="history-title"><strong>{sub.subscription_name}</strong><span className={effectiveSubscriptionStatus(sub.end_date,date)==="EXPIRED"?"badge expired":`badge ${s.status.toLowerCase()}`}>{effectiveSubscriptionStatus(sub.end_date,date)==="EXPIRED"?"EXPIRED":s.status}</span></div><dl className="history-facts"><Fact label="الفترة" value={`${sub.start_date} — ${sub.end_date}`}/><Fact label="القيمة" value={Number(sub.amount).toFixed(2)}/><Fact label="المدفوع" value={s.totalPaid.toFixed(2)}/><Fact label="المتبقي" value={s.remaining.toFixed(2)}/></dl></article>; })}</History>
-    <History title="سجل الدفعات">{customer.subscriptions.flatMap((sub) => sub.payments.map((p) => <article className="timeline-item" key={p.id}><div><strong>{Number(p.amount).toFixed(2)}</strong><span>{sub.subscription_name}</span></div><div><time>{p.payment_date}</time>{p.notes && <p>{p.notes}</p>}</div></article>))}</History>
-    <History title="سجل التنبيهات">{reminders.map((r) => <article className="timeline-item" key={r.id}><div><strong>{r.subscriptions.subscription_name}</strong><span>{r.scheduled_date.slice(0,10)}</span></div><div><span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span>{r.sent_at && <p>أرسل: {r.sent_at}</p>}</div></article>)}</History>
+    <History title="سجل الاشتراكات">{customer.subscriptions.map((sub) => {
+      const s = paymentSummary(sub.amount, sub.payments);
+      const isExpired = effectiveSubscriptionStatus(sub.end_date, date) === "EXPIRED";
+      const label = isExpired ? CUSTOMER_STATUS_LABELS.EXPIRED : CUSTOMER_STATUS_LABELS[s.status];
+      const className = isExpired ? "status-expired" : `status-${s.status.toLowerCase()}`;
+      return <article className="history-card" key={sub.id}>
+        <div className="history-title"><strong>{sub.subscription_name}</strong><span className={`badge ${className}`}>{label}</span></div>
+        <dl className="history-facts">
+          <Fact label="الفترة" value={`${sub.start_date} — ${sub.end_date}`}/>
+          <Fact label="القيمة" value={formatAmount(sub.amount)}/>
+          <Fact label="المدفوع" value={formatAmount(s.totalPaid)}/>
+          <Fact label="المتبقي" value={formatAmount(s.remaining)}/>
+        </dl>
+      </article>;
+    })}</History>
+    <History title="سجل الدفعات">{customer.subscriptions.flatMap((sub) => sub.payments.map((p) =>
+      <article className="timeline-item" key={p.id}><div><strong>{formatAmount(p.amount)}</strong><span>{sub.subscription_name}</span></div><div><time>{p.payment_date}</time>{p.notes && <p>{p.notes}</p>}</div></article>
+    ))}</History>
+    <History title="سجل التنبيهات">{reminders.map((r) =>
+      <article className="timeline-item" key={r.id}><div><strong>{r.subscriptions.subscription_name}</strong><span>{r.scheduled_date.slice(0,10)}</span></div><div><span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span>{r.sent_at && <p>أرسل: {r.sent_at}</p>}</div></article>
+    )}</History>
   </>;
 }
 
