@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useRef, useState } from "react";
+import { APP_NAME, APP_SUBTITLE } from "../../lib/app-info";
 import { supportsFileShare } from "../../lib/browser-fallbacks";
 import { backupFilename, parseBackupJson, serializeBackup, type BackupDocument } from "../../lib/backup";
 import { exportAllData, restoreBackup } from "../../lib/repository/indexeddb";
@@ -100,7 +101,11 @@ export default function SettingsPage() {
   }
 
   return <>
-    <section className="page-heading"><div><span className="eyebrow">الإعدادات</span><h1>النسخ الاحتياطي والاستعادة</h1><p>احفظ نسخة محلية كاملة من بياناتك أو استعد نسخة سابقة بعد التحقق منها.</p></div></section>
+    <section className="page-heading"><div><span className="eyebrow">{APP_NAME}</span><h1>النسخ الاحتياطي والاستعادة</h1><p>{APP_SUBTITLE} — احفظ نسخة محلية كاملة من بياناتك أو استعد نسخة سابقة بعد التحقق منها.</p></div></section>
+    <section className="settings-local-info" aria-label="معلومات التخزين المحلي">
+      <strong>بياناتك محلية أولًا</strong>
+      <p>تُخزّن بيانات العملاء والاشتراكات والتحصيل على هذا الجهاز. لا يتم رفع النسخة الاحتياطية تلقائيًا إلى خادم خارجي.</p>
+    </section>
     {error && <p className="notice error" role="alert">{error}</p>}
     {notice && <p className="notice success">{notice}</p>}
     {shareNotice && <p className="notice">{shareNotice}</p>}
