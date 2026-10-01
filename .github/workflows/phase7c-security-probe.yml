@@ -1,0 +1,49 @@
+name: Phase 7C Security Probe
+
+on:
+  push:
+    branches: ["phase-7c-security-remediation"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Runtime versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Clean install current dependency ranges
+        run: npm install
+
+      - name: Resolved framework tree
+        run: npm ls next postcss
+
+      - name: Full audit
+        shell: bash
+        run: |
+          npm audit --json > /tmp/audit-full.json || true
+          cat /tmp/audit-full.json
+
+      - name: Production audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > /tmp/audit-prod.json || true
+          cat /tmp/audit-prod.json
+
+      - name: Candidate metadata
+        shell: bash
+        run: |
+          npm view next@15.5.27 version peerDependencies dependencies --json
+          npm view postcss@8.5.23 version --json
