@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import test from "node:test";
+import ts from "typescript";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import * as appInfoValues from "../lib/app-info.ts";
 
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
@@ -22,6 +27,18 @@ const appInfo = await readFile(new URL("../lib/app-info.ts", import.meta.url), "
 const customerManagement = await readFile(new URL("../lib/customer-management.ts", import.meta.url), "utf8");
 const brandIcon = await readFile(new URL("../public/branding/hamnova-icon.png", import.meta.url));
 const brandLogo = await readFile(new URL("../public/branding/hamnova-logo.png", import.meta.url));
+
+// Render the real TSX page using the project's existing TypeScript/React dependencies.
+const require = createRequire(import.meta.url);
+const contactModule = ts.transpileModule(contact, {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
+}).outputText;
+function renderContact(info = appInfoValues) {
+  const module = { exports: {} };
+  const pageRequire = (name) => name === "../../lib/app-info" ? info : require(name);
+  new Function("require", "module", "exports", contactModule)(pageRequire, module, module.exports);
+  return renderToStaticMarkup(createElement(module.exports.default));
+}
 
 test("Phase 7B keeps the customer management table primary on mobile and desktop", () => {
   assert.match(customers, /customer-table-shell/);
@@ -190,11 +207,63 @@ test("contact page uses approved HAMNOVA identity owner and local-first privacy 
   assert.match(contact, /عن HAMNOVA والتواصل/);
   assert.match(contact, /OWNER_NAME/);
   assert.match(contact, /تُخزّن بيانات العمل محليًا/);
-  assert.match(appInfo, /OWNER_NAME = "همام"/);
+  assert.match(appInfo, /OWNER_NAME = "همام القراضي"/);
   assert.match(appInfo, /phone: null/);
-  assert.match(appInfo, /whatsapp: null/);
+  assert.match(appInfo, /whatsapp: "775933577"/);
   assert.match(appInfo, /email: null/);
   assert.match(contact, /hasContact &&/);
+});
+
+test("release contact renders exact approved names, number, branding and privacy", () => {
+  const html = renderContact();
+  assert.match(html, /همام القراضي/);
+  assert.match(html, /Hammmam Al-quradi/);
+  assert.match(html, /dir="ltr"[^>]*>775933577</);
+  assert.match(html, /HAMNOVA/);
+  assert.match(html, /إدارة الاشتراكات والتحصيل/);
+  assert.match(html, /src="\/branding\/hamnova-logo\.png"/);
+  assert.match(html, /تُخزّن بيانات العمل محليًا/);
+  assert.doesNotMatch(html, /href="(?:tel:|mailto:)/);
+  const links = [...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(links, ["https://wa.me/967775933577"]);
+});
+
+test("WhatsApp action uses the explicit international number and safe new-tab attributes", () => {
+  const html = renderContact();
+  assert.match(html, /<a href="https:\/\/wa\.me\/967775933577" target="_blank" rel="noopener noreferrer">تواصل عبر واتساب<\/a>/);
+  const withoutInternationalNumber = renderContact({
+    ...appInfoValues,
+    CONTACT: { ...appInfoValues.CONTACT, whatsappInternational: null },
+  });
+  assert.match(withoutInternationalNumber, /775933577/);
+  assert.doesNotMatch(withoutInternationalNumber, /https:\/\/wa\.me\//);
+});
+
+test("unconfigured contact values render no fabricated actions or contact section", () => {
+  const html = renderContact({
+    ...appInfoValues,
+    CONTACT: { phone: null, whatsapp: null, whatsappInternational: null, email: null },
+  });
+  assert.doesNotMatch(html, /<a\b|وسائل التواصل|775933577/);
+  assert.match(html, /همام القراضي/);
+});
+
+test("release version agrees across application, manifest and lockfile without changing data versions", async () => {
+  const manifest = JSON.parse(pkg);
+  const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
+  assert.equal(appInfoValues.APP_VERSION, "1.0.0");
+  assert.equal(manifest.version, appInfoValues.APP_VERSION);
+  assert.equal(lock.version, manifest.version);
+  assert.equal(lock.packages[""].version, manifest.version);
+  assert.equal(manifest.engines.node, ">=20.9.0");
+  assert.equal(lock.packages[""].engines.node, manifest.engines.node);
+  assert.equal(lock.packages["node_modules/next"].version, "16.3.8");
+  assert.equal(lock.packages["node_modules/postcss"].version, "8.5.23");
+  assert.match(repository, /const DATABASE_NAME = "subscription-collection-tracker"/);
+  assert.match(repository, /const DATABASE_VERSION = 1/);
+  assert.match(backup, /BACKUP_APP = "subscription-collection-tracker"/);
+  assert.match(backup, /BACKUP_VERSION = 1/);
+  assert.match(backup, /BACKUP_SCHEMA_VERSION = 1/);
 });
 
 test("Phase 7B preserves the same IndexedDB identity and backup format", () => {

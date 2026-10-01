@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { APP_DESCRIPTION, APP_NAME, APP_SUBTITLE, APP_VERSION, CONTACT, OWNER_NAME } from "../../lib/app-info";
+import { APP_DESCRIPTION, APP_NAME, APP_SUBTITLE, APP_VERSION, CONTACT, OWNER_NAME, OWNER_NAME_EN } from "../../lib/app-info";
 
 export const metadata: Metadata = {
   title: "عن HAMNOVA والتواصل",
@@ -7,7 +7,10 @@ export const metadata: Metadata = {
 };
 
 export default function ContactPage() {
-  const hasContact = Boolean(CONTACT.phone || CONTACT.whatsapp || CONTACT.email);
+  const whatsappUrl = CONTACT.whatsapp && CONTACT.whatsappInternational
+    ? `https://wa.me/${CONTACT.whatsappInternational}`
+    : null;
+  const hasContact = Boolean(CONTACT.phone || whatsappUrl || CONTACT.email);
 
   return <>
     <section className="page-heading contact-heading">
@@ -32,6 +35,8 @@ export default function ContactPage() {
         <p>{APP_DESCRIPTION}، تطبيق محلي يساعد على متابعة العملاء والاشتراكات والدفعات والتنبيهات والنسخ الاحتياطي.</p>
         <dl className="contact-facts">
           <div><dt>صاحب المشروع</dt><dd>{OWNER_NAME}</dd></div>
+          <div><dt>اسم المطوّر بالإنجليزية</dt><dd dir="ltr" lang="en">{OWNER_NAME_EN}</dd></div>
+          {CONTACT.whatsapp && <div><dt>واتساب</dt><dd dir="ltr">{CONTACT.whatsapp}</dd></div>}
           <div><dt>الإصدار</dt><dd dir="ltr">{APP_VERSION}</dd></div>
         </dl>
         <div className="privacy-panel">
@@ -41,7 +46,7 @@ export default function ContactPage() {
 
         {hasContact && <div className="contact-actions" aria-label="وسائل التواصل">
           {CONTACT.phone && <a href={`tel:${CONTACT.phone}`}>اتصال</a>}
-          {CONTACT.whatsapp && <a href={`https://wa.me/${CONTACT.whatsapp}`}>واتساب</a>}
+          {whatsappUrl && <a href={whatsappUrl} target="_blank" rel="noopener noreferrer">تواصل عبر واتساب</a>}
           {CONTACT.email && <a href={`mailto:${CONTACT.email}`}>بريد إلكتروني</a>}
         </div>}
       </div>
