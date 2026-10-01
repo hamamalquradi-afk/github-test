@@ -1,1 +1,1 @@
-export { getCustomer, getCustomerReminders, getCustomers, getReminders } from "./repository/indexeddb";
+export { getCustomer, getCustomerDeletionSummary, getCustomerReminders, getCustomers, getReminders } from "./repository/indexeddb";
