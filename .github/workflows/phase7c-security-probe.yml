@@ -1,39 +1,76 @@
-name: Phase 7C Security Probe
+name: Phase 7C Security Remediation Validation
 
 on:
   push:
     branches: ["phase-7c-security-remediation"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  probe:
+  validate-and-lock:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout remediation branch
         uses: actions/checkout@v4
+        with:
+          ref: phase-7c-security-remediation
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Audit stable Next 16 candidates
+      - name: Generate npm lockfile
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Clean lockfile install
+        run: npm ci
+
+      - name: Runtime and dependency versions
+        run: |
+          node --version
+          npm --version
+          npm ls next postcss react react-dom
+
+      - name: Full security audit
         shell: bash
         run: |
-          set -euo pipefail
-          ROOT="$PWD"
-          for v in 16.3.0 16.3.3 16.3.6 16.3.8; do
-            echo "=== CANDIDATE $v ==="
-            dir="/tmp/next-$v"
-            rm -rf "$dir"
-            mkdir -p "$dir"
-            cp "$ROOT/package.json" "$dir/package.json"
-            cd "$dir"
-            npm install --package-lock-only --ignore-scripts --save-exact "next@$v" >/tmp/install-$v.log 2>&1
-            npm ls next postcss --package-lock-only || true
-            npm audit --omit=dev --json >"/tmp/audit-$v.json" || true
-            node -e 'const fs=require("fs"); const a=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities,vulnerabilities:Object.fromEntries(Object.entries(a.vulnerabilities||{}).map(([k,x])=>[k,{severity:x.severity,range:x.range,fixAvailable:x.fixAvailable,via:(x.via||[]).map(v=>typeof v==="string"?v:{title:v.title,url:v.url,severity:v.severity,range:v.range})}]))},null,2));' "/tmp/audit-$v.json"
-            cd "$ROOT"
-          done
+          npm audit --json > /tmp/audit-full.json || true
+          cat /tmp/audit-full.json
+          node -e 'const fs=require("fs");const a=JSON.parse(fs.readFileSync("/tmp/audit-full.json","utf8"));const v=a.metadata?.vulnerabilities||{};if((v.high||0)>0||(v.critical||0)>0){process.exit(1)}'
+
+      - name: Production security audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > /tmp/audit-prod.json || true
+          cat /tmp/audit-prod.json
+          node -e 'const fs=require("fs");const a=JSON.parse(fs.readFileSync("/tmp/audit-prod.json","utf8"));const v=a.metadata?.vulnerabilities||{};if((v.high||0)>0||(v.critical||0)>0){process.exit(1)}'
+
+      - name: Unit and regression tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+
+      - name: Whitespace check
+        run: git diff --check origin/main...HEAD
+
+      - name: Verify QA working tree
+        shell: bash
+        run: |
+          git status --short
+          test -f package-lock.json
+
+      - name: Commit audited lockfile and remove temporary probe
+        shell: bash
+        run: |
+          rm -f .github/workflows/phase7c-security-probe.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json .github/workflows/phase7c-security-probe.yml
+          git commit -m "Phase 7C: add reproducible audited npm lockfile"
+          git push origin HEAD:phase-7c-security-remediation
