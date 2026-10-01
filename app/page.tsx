@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { currentSubscription, effectiveSubscriptionStatus, paymentSummary } from "../lib/domain";
+import { dashboardMetrics, formatAmount } from "../lib/customer-management";
 import { localToday } from "../lib/local-date";
 import { getCustomers, getReminders } from "../lib/data";
 import type { Customer, ReminderView } from "../lib/types";
@@ -30,26 +30,64 @@ export default function Home() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const currentSubscriptions = customers
-    .map((customer) => ({ customer, subscription: currentSubscription(customer.subscriptions, today) }))
-    .filter(({ subscription }) => subscription && subscription.status.toLowerCase() === "active" && subscription.start_date <= today && effectiveSubscriptionStatus(subscription.end_date, today) === "ACTIVE");
-  const remainingTotal = currentSubscriptions.reduce((total, { subscription }) => total + paymentSummary(subscription!.amount, subscription!.payments).remaining, 0);
+  const metrics = dashboardMetrics(customers, today);
   const todayReminders = reminders.filter((item) => item.scheduled_date.slice(0, 10) === today && item.status !== "SENT");
   const upcomingReminders = reminders.filter((item) => item.scheduled_date.slice(0, 10) > today && item.status !== "SENT");
 
   return <>
-    <section className="page-heading"><div><span className="eyebrow">لوحة المتابعة</span><h1>نظرة سريعة على التحصيل</h1><p>الاشتراكات والمبالغ والتنبيهات المهمة في مكان واحد.</p></div><Link className="button-link" href="/customers">إدارة العملاء</Link></section>
-    {error && <p className="notice error" role="alert">{error}</p>}{loading && <p className="empty-state">جارٍ تحميل البيانات المحلية…</p>}
-    <section className="summary-grid" aria-label="ملخص اليوم">
-      <article className="summary-card"><span>العملاء</span><strong>{customers.length}</strong><small>إجمالي السجلات</small></article>
-      <article className="summary-card"><span>الاشتراكات النشطة</span><strong>{currentSubscriptions.length}</strong><small>حتى {today}</small></article>
-      <article className="summary-card"><span>تنبيهات اليوم</span><strong>{todayReminders.length}</strong><small>بانتظار الإرسال</small></article>
-      <article className="summary-card"><span>إجمالي المتبقي</span><strong className="amount">{remainingTotal.toFixed(2)}</strong><small>على الاشتراكات الحالية</small></article>
+    <section className="page-heading">
+      <div><span className="eyebrow">لوحة HAMNOVA</span><h1>نظرة سريعة على التحصيل</h1><p>مؤشرات عملية من بياناتك المحلية الحالية دون تقارير أو خدمات خارجية.</p></div>
+      <Link className="button-link" href="/customers">إدارة العملاء</Link>
     </section>
-    <section className="section-block"><div className="section-heading"><div><span className="eyebrow">الاشتراكات الحالية</span><h2>المبالغ المتبقية</h2></div><Link href="/customers">عرض جميع العملاء</Link></div><div className="compact-grid">
-      {currentSubscriptions.slice(0, 6).map(({ customer, subscription }) => { const summary = paymentSummary(subscription!.amount, subscription!.payments); return <Link className="compact-card" href={`/customers/${customer.id}`} key={customer.id}><div><strong>{customer.name}</strong><span>{subscription!.subscription_name}</span></div><div className="compact-meta"><span>ينتهي {subscription!.end_date}</span><b>{summary.remaining.toFixed(2)} متبقي</b></div></Link>; })}
-      {!loading && !currentSubscriptions.length && <p className="empty-state">لا توجد اشتراكات نشطة.</p>}
-    </div></section>
-    <section className="section-block"><div className="section-heading"><div><span className="eyebrow">التنبيهات</span><h2>اليوم والقادم</h2></div><span className="section-count">{todayReminders.length + upcomingReminders.length} تنبيه</span></div><ReminderList reminders={reminders} today={today} compact onChanged={load}/></section>
+
+    {error && <p className="notice error" role="alert">{error}</p>}
+    {loading && <p className="empty-state">جارٍ تحميل البيانات المحلية…</p>}
+
+    <section className="summary-grid dashboard-summary" aria-label="ملخص التحصيل">
+      <Summary label="إجمالي العملاء" value={String(metrics.totalCustomers)} detail="جميع السجلات المحلية"/>
+      <Summary label="الاشتراكات النشطة" value={String(metrics.activeSubscriptions)} detail={`حتى ${today}`}/>
+      <Summary label="تنتهي خلال 7 أيام" value={String(metrics.expiringWithin7Days)} detail="من الاشتراكات الحالية"/>
+      <Summary label="تنبيهات اليوم" value={String(todayReminders.length)} detail="بانتظار الإرسال"/>
+      <Summary label="إجمالي قيمة الاشتراكات الحالية" value={formatAmount(metrics.totalValue)} detail="القيمة الإجمالية"/>
+      <Summary label="إجمالي المدفوع" value={formatAmount(metrics.totalPaid)} detail="على الاشتراكات الحالية"/>
+      <Summary label="إجمالي المتبقي" value={formatAmount(metrics.totalRemaining)} detail="المبلغ المطلوب تحصيله"/>
+    </section>
+
+    <section className="dashboard-collections">
+      <article className="dashboard-list-card">
+        <div className="section-heading"><div><span className="eyebrow">التحصيل</span><h2>أعلى المبالغ المتبقية</h2></div></div>
+        <div className="dashboard-rank-list">
+          {metrics.topRemaining.map((row) =>
+            <Link href={`/customers/${row.customer.id}`} key={row.customer.id}>
+              <span><strong>{row.customer.name}</strong><small>{row.current?.subscription_name}</small></span>
+              <b>{formatAmount(row.remaining)}</b>
+            </Link>
+          )}
+          {!loading && !metrics.topRemaining.length && <p className="empty-state">لا توجد مبالغ متبقية حاليًا.</p>}
+        </div>
+      </article>
+
+      <article className="dashboard-list-card">
+        <div className="section-heading"><div><span className="eyebrow">المواعيد</span><h2>الأقرب للانتهاء</h2></div></div>
+        <div className="dashboard-rank-list">
+          {metrics.nearestExpiry.map((row) =>
+            <Link href={`/customers/${row.customer.id}`} key={row.customer.id}>
+              <span><strong>{row.customer.name}</strong><small>{row.current?.subscription_name} — {row.endDate}</small></span>
+              <b>{row.daysRemaining} يوم</b>
+            </Link>
+          )}
+          {!loading && !metrics.nearestExpiry.length && <p className="empty-state">لا توجد اشتراكات نشطة.</p>}
+        </div>
+      </article>
+    </section>
+
+    <section className="section-block">
+      <div className="section-heading"><div><span className="eyebrow">التنبيهات</span><h2>اليوم والقادم</h2></div><span className="section-count">{todayReminders.length + upcomingReminders.length} تنبيه</span></div>
+      <ReminderList reminders={reminders} today={today} compact onChanged={load}/>
+    </section>
   </>;
+}
+
+function Summary({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <article className="summary-card"><span>{label}</span><strong className="amount">{value}</strong><small>{detail}</small></article>;
 }
