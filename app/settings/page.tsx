@@ -52,8 +52,8 @@ export default function SettingsPage() {
     if (!backupFile) return;
     setError("");
     try {
-      const shareData = { files: [backupFile], title: "نسخة احتياطية لمتابعة الاشتراكات" };
-      if (!supportsFileShare(typeof navigator === "undefined" ? undefined : navigator, backupFile)) {
+      const shareData = { files: [backupFile], title: "نسخة احتياطية HAMNOVA" };
+      if (typeof navigator.share !== "function" || !supportsFileShare(navigator, backupFile)) {
         setShareAvailable(false);
         setShareNotice("المشاركة غير متاحة في هذا المتصفح، ويمكنك استخدام الملف الذي تم تنزيله.");
         return;
