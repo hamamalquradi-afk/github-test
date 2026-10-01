@@ -109,9 +109,11 @@ test("historical subscription creation skips reminder generation", () => {
 });
 
 const reminderUI = await readFile(new URL("../app/reminder-list.tsx", import.meta.url), "utf8");
-test("share uses a fresh message and both handler and button check eligibility", () => {
-  assert.match(reminderUI, /if \(sending \|\| !canSendReminder/);
-  assert.match(reminderUI, /disabled=\{sending \|\| !canSendReminder/);
-  assert.match(reminderUI, /reminderMessage\(customer.name, subscription.subscription_name, subscription.end_date\)/);
-  assert.ok(reminderUI.indexOf("await navigator.share") < reminderUI.indexOf("await markReminderSent"));
+test("share uses a fresh local-date message and both handler and button check eligibility", () => {
+  assert.match(reminderUI, /const eligible = canSendReminder\(\{ \.\.\.reminder, status \}, today\)/);
+  assert.match(reminderUI, /if \(sending \|\| !eligible\) return/);
+  assert.match(reminderUI, /disabled=\{sending \|\| !eligible\}/);
+  assert.match(reminderUI, /reminderMessage\(customer.name, subscription.subscription_name, subscription.end_date, today\)/);
+  assert.match(reminderUI, /shareReminderMessage\(message, navigator.share.bind\(navigator\)/);
+  assert.ok(reminderUI.indexOf("await shareReminderMessage") < reminderUI.indexOf("await markReminderSent"));
 });
