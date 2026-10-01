@@ -19,31 +19,11 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Runtime versions
-        run: |
-          node --version
-          npm --version
-
-      - name: Clean install current dependency ranges
-        run: npm install
-
-      - name: Resolved framework tree
-        run: npm ls next postcss
-
-      - name: Full audit
+      - name: Candidate version metadata
         shell: bash
         run: |
-          npm audit --json > /tmp/audit-full.json || true
-          cat /tmp/audit-full.json
-
-      - name: Production audit
-        shell: bash
-        run: |
-          npm audit --omit=dev --json > /tmp/audit-prod.json || true
-          cat /tmp/audit-prod.json
-
-      - name: Candidate metadata
-        shell: bash
-        run: |
-          npm view next@15.5.27 version peerDependencies dependencies --json
-          npm view postcss@8.5.23 version --json
+          set -euo pipefail
+          for v in 16.0.0 16.0.1 16.0.7 16.1.0 16.1.6 16.2.0 16.2.11 16.3.0 16.3.3 16.3.6 16.3.8; do
+            echo "=== NEXT $v ==="
+            npm view next@$v version dependencies.postcss peerDependencies.react peerDependencies.react-dom engines.node --json
+          done
