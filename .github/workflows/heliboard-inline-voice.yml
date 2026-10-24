@@ -23,6 +23,8 @@ jobs:
           git -C heliboard-source checkout --detach FETCH_HEAD
       - name: Apply exact overlay without touching layouts
         run: python3 heliboard-inline-voice/apply_overlay.py heliboard-source
+      - name: Validate patched layout and install identifiers
+        run: python3 heliboard-inline-voice/validate_overlay.py heliboard-source
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -44,12 +46,27 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
+      - name: Run upstream JVM tests for the testable build variant
+        working-directory: heliboard-source
+        run: ./gradlew testRunTestsUnitTest --stacktrace
       - name: Publish built APK (if successful)
         uses: actions/upload-artifact@v4
         with:
           name: HeliBoard-inline-voice-debug
           path: heliboard-source/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+      - name: Enable KVM for Android emulator
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Smoke test launch and keyboard service on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk
       - name: Preserve build failure reports
         if: failure()
         uses: actions/upload-artifact@v4
