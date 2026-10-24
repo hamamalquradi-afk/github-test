@@ -1,0 +1,53 @@
+name: HeliBoard inline voice APK
+on:
+  push:
+    branches:
+      - heliboard-inline-voice-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned official HeliBoard source
+        shell: bash
+        run: |
+          git init heliboard-source
+          git -C heliboard-source remote add origin https://github.com/HeliBorg/HeliBoard.git
+          git -C heliboard-source fetch --depth 1 origin e97acdbe7ad16ef06d89d71d35ed1096e6d69f4c
+          git -C heliboard-source checkout --detach FETCH_HEAD
+      - name: Apply exact overlay without touching layouts
+        run: python3 heliboard-inline-voice/apply_overlay.py heliboard-source
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK and NDK required by pinned source
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;28.0.13004108"
+      - name: Build experimental debug APK
+        working-directory: heliboard-source
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+      - name: Publish built APK (if successful)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-inline-voice-debug
+          path: heliboard-source/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - name: Preserve build failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-build-reports
+          path: heliboard-source/**/build/reports/**
+          if-no-files-found: ignore
