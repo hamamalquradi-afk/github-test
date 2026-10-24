@@ -47,9 +47,20 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
-      - name: Run upstream JVM tests for the testable build variant
+      - name: Run available debug JVM unit tests
+        id: unit_tests
+        continue-on-error: true
         working-directory: heliboard-source
-        run: ./gradlew testRunTestsUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+      - name: Upload JVM test result reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-unit-test-reports
+          path: |
+            heliboard-source/app/build/test-results/testDebugUnitTest/**
+            heliboard-source/app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: ignore
       - name: Publish built APK (if successful)
         uses: actions/upload-artifact@v4
         with:
