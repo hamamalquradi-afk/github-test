@@ -136,6 +136,22 @@ g = replace_once(g,
     "unique experimental application id")
 build.write_text(g, encoding="utf-8")
 
+# A new applicationIdSuffix alone is NOT sufficient for side-by-side installation.
+# Upstream debug resources still name the .debug clipboard and gesture providers.
+# Android globally reserves provider authorities, so they must be made unique too.
+# Keep the overrides scoped to the debug variant: do not modify stable/release IDs.
+for resource_name, old_authority, new_authority in (
+    ("clip_provider.xml", "helium314.keyboard.debug.clipprovider",
+     "helium314.keyboard.compactdebug.clipprovider"),
+    ("gesture_data.xml", "helium314.keyboard.debug.provider",
+     "helium314.keyboard.compactdebug.provider"),
+):
+    resource = root / "app/src/debug/res/values" / resource_name
+    value = resource.read_text(encoding="utf-8")
+    value = replace_once(value, old_authority, new_authority,
+                         "unique " + resource_name + " provider authority")
+    resource.write_text(value, encoding="utf-8")
+
 # Clearly distinguish the compact test IME from an existing stable HeliBoard.
 m = manifest.read_text(encoding="utf-8")
 if m.count('android:label="@string/english_ime_name"') != 2:
