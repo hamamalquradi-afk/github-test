@@ -6,8 +6,10 @@ This directory contains an overlay for the pinned upstream [HeliBoard](https://g
 
 - Inline Android `SpeechRecognizer` invoked from the keyboard microphone key without switching input methods. First use launches the Android microphone permission screen. Recognition depends on a speech service on the device and **may send speech to a provider/cloud**; offline recognition is not guaranteed.
 - Bundled Arabic and English QWERTY layouts, a 16-symbol programming row, accessible Shift/Ctrl/Alt/Tab keys, a compact bottom row and extra Arabic marks. The comma adapts to email and URL input fields.
-- Green listening indicator on the microphone toolbar icon when available, plus a status Toast.
-- Recognition disabled for passwords/PINs, and existing input connection checked before inserting a final transcript.
+- One-tap, user-controlled dictation mode. After a pause / Android recognizer result, the app automatically requests the next utterance, without requiring another tap. A second tap stops the loop; hiding the keyboard or changing the input target also stops it. Android recognition services still impose per-utterance limits and may briefly release the microphone between sessions; genuinely uninterrupted audio capture is not guaranteed.
+- Live interim words appear as composing text when the installed recognition engine provides partial hypotheses. Final results replace the interim region instead of appending duplicate text. If the recognition engine does not supply partial results, words still appear only when the engine finalizes the utterance.
+- Green dictation-mode indicator on the microphone toolbar icon when available, plus a status Toast. Recognition stops on repeated engine errors, permissions problems or provider rate limits instead of retrying indefinitely.
+- Recognition disabled for passwords/PINs, and existing input connection checked before inserting transcribed text.
 
 ## Install safely
 
@@ -24,7 +26,7 @@ The workflow validates overlay installation authorities and layout invariants, b
 
 ## Manual verification still required
 
-- Start and stop microphone recognition on a real Android phone with an installed recognition service, grant/deny permission, and check Arabic and English final text without switching keyboards.
+- On a real Android phone, start dictation, speak several sentences with natural pauses, verify partial words appear while speaking, final words are not duplicated, automatic restart handles silence, and a second microphone tap cancels pending restarts. Repeat in Arabic and English, and with a service that does not provide interim hypotheses.
 - Test app startup, default IME selection, Arabic/English layouts, symbols, Ctrl+A/C/V/Z, long-press diacritics, rotation and sensitive fields.
 - Verify data migration/backup and device-specific voice behavior. No cloud transcription guarantee is made.
 
