@@ -22,7 +22,11 @@ This directory contains an overlay for the pinned upstream [HeliBoard](https://g
 
 ## Automated checks
 
-The workflow validates overlay installation authorities and layout invariants, builds the debug APK, attempts the upstream debug JVM tests, and uses an Android emulator to launch the settings/welcome screen and enable/select the IME. Where the earlier working debug APK artifact is accessible, the emulator also tests side-by-side installation. Consult each workflow run for actual pass/fail results; build success alone is **not** proof of microphone accuracy or runtime stability on every phone.
+The workflow validates overlay installation authorities and layout invariants, builds and verifies the signature of the debug APK, and runs the full debug JVM suite plus ten controller regressions. These cover cumulative Arabic, revised English finals, repeated partials, stopping, cursor edits, unavailable surrounding text, editor changes, final-only engines, failed deletion, and stale sessions.
+
+If the JVM suite fails, the same full suite runs on a separate, unmodified checkout of the exact pinned upstream commit. The comparison rejects new or changed failures, missing tests, newly skipped tests, and incomplete reports. Existing failures are retained in both XML reports and printed as warnings; a passing regression gate does **not** mean all upstream tests passed. No known-failure exclusion list is used. The German layout assertion counts real keys rather than the two alignment spacers introduced by narrower Compact Shift/Delete keys.
+
+An Android emulator launches the settings/welcome screen and enables/selects the IME. Where the earlier working debug APK artifact is accessible, it also tests side-by-side installation. Consult each workflow run for actual pass/fail counts; build success alone is **not** proof of microphone accuracy or runtime stability on every phone. These validation changes do not modify the shipped voice controller or layouts.
 
 ## Manual verification still required
 

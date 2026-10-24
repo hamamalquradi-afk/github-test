@@ -192,6 +192,19 @@ name_resource.write_text(
     encoding="utf-8"
 )
 
+# Compact uses narrower Shift/Delete keys. The parser inserts two non-clickable
+# spacers in the German letter row; its test must count keys, not those spacers.
+parser_test = root / "app/src/test/java/helium314/keyboard/KeyboardParserTest.kt"
+test_source = parser_test.read_text(encoding="utf-8")
+for row in ("keys", "keys2"):
+    test_source = replace_once(test_source,
+        f"        assertEquals(10, {row}[2].size)",
+        f"        assertEquals(10, {row}[2].count {{ !it.isSpacer }})",
+        "German key count excluding alignment spacers " + row)
+parser_test.write_text(test_source, encoding="utf-8")
+shutil.copy2(overlay / "VoiceInputControllerTest.java",
+             root / "app/src/test/java/helium314/keyboard/latin/VoiceInputControllerTest.java")
+
 print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
 print("Imported custom layout files and Android speech-recognition service remain unchanged.")
