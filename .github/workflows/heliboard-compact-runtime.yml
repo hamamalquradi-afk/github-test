@@ -1,0 +1,46 @@
+name: HeliBoard Compact runtime repair
+on:
+  push:
+    branches:
+      - fix/heliboard-compact-runtime-20261024
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  reproduce-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact reported broken APK
+        uses: actions/download-artifact@v4
+        with:
+          name: HeliBoard-inline-voice-debug
+          run-id: 40098360205
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: broken-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Reproduce startup crash and capture real Logcat
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: python3 heliboard-inline-voice/tests/runtime_probe.py --apk-dir broken-apk --package helium314.keyboard.compactdebug --output runtime-baseline --expect-startup-crash
+      - name: Preserve baseline crash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-baseline-runtime-evidence
+          path: runtime-baseline/
+          if-no-files-found: error
