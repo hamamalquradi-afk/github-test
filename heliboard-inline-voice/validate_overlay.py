@@ -27,6 +27,13 @@ assert gradle.count('applicationIdSuffix = ".compactdebug"') == 1
 
 manifest = ET.parse(app / "src/main/AndroidManifest.xml").getroot()
 android = "{http://schemas.android.com/apk/res/android}"
+# Upstream WelcomeWizard uses applicationInfo.labelRes as a Compose stringResource ID.
+# Literal android:label resets labelRes to 0 and causes a deterministic startup crash.
+compact_name = ET.parse(app / "src/debug/res/values/compact_ime_name.xml").getroot()
+assert any(n.get("name") == "compact_ime_name" and n.text == "HeliBoard Compact"
+           for n in compact_name.findall("string"))
+app_label = manifest.find("application").get(android + "label")
+assert app_label == "@string/compact_ime_name", app_label
 assert any(node.get(android + "name") == "android.permission.RECORD_AUDIO"
            for node in manifest.findall("uses-permission"))
 assert any(node.get(android + "name") == "helium314.keyboard.latin.VoicePermissionActivity"
