@@ -120,6 +120,30 @@ d = replace_once(d,
     "default bottom row height")
 defaults.write_text(d, encoding="utf-8")
 
+
+# The previous v1 APK used a per-run debug signing key.  Give the compact
+# screenshot edition a separate application ID so it can be installed
+# alongside the user's working v1 without uninstalling or losing preferences.
+build = root / "app/build.gradle.kts"
+g = build.read_text(encoding="utf-8")
+g = replace_once(g,
+    "            isMinifyEnabled = true\n"
+    "            isJniDebuggable = false\n"
+    "            applicationIdSuffix = \".debug\"\n",
+    "            isMinifyEnabled = true\n"
+    "            isJniDebuggable = false\n"
+    "            applicationIdSuffix = \".compactdebug\"\n",
+    "unique experimental application id")
+build.write_text(g, encoding="utf-8")
+
+# Clearly distinguish the compact test IME from an existing stable HeliBoard.
+m = manifest.read_text(encoding="utf-8")
+if m.count('android:label="@string/english_ime_name"') != 2:
+    raise RuntimeError("Unexpected application/service label changes")
+m = m.replace('android:label="@string/english_ime_name"',
+              'android:label="HeliBoard Compact"')
+manifest.write_text(m, encoding="utf-8")
+
 print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
 print("Imported custom layout files and Android speech-recognition service remain unchanged.")
