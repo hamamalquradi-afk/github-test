@@ -18,6 +18,28 @@
       "width": 0.1
     },
     {
+      "$": "variation_selector",
+      "default": {
+        "label": "comma",
+        "width": 0.065,
+        "labelFlags": 1073741824
+      },
+      "email": {
+        "label": "@",
+        "width": 0.065,
+        "labelFlags": 1073741824,
+        "groupId": 1,
+        "type": "function"
+      },
+      "uri": {
+        "label": "/",
+        "width": 0.065,
+        "labelFlags": 1073741824,
+        "groupId": 1,
+        "type": "function"
+      }
+    },
+    {
       "label": "Ctrl",
       "code": -1,
       "type": "function",
