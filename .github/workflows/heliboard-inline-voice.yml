@@ -93,6 +93,13 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           script: bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk /tmp/heliboard-previous/HeliBoard_4.3-beta1-debug.apk
+      - name: Upload Android emulator runtime log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-emulator-runtime-log
+          path: heliboard-inline-voice/test-results/emulator-logcat.txt
+          if-no-files-found: ignore
       - name: Mark workflow failed when JVM tests fail
         if: always() && steps.unit_tests.outcome == 'failure'
         run: |
