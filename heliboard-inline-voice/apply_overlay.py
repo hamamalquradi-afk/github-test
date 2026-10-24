@@ -165,8 +165,8 @@ m = m.replace('android:label="@string/english_ime_name"',
 manifest.write_text(m, encoding="utf-8")
 name_resource = root / "app/src/debug/res/values/compact_ime_name.xml"
 name_resource.write_text(
-    '<?xml version="1.0" encoding="utf-8"?>\\n'
-    '<resources><string name="compact_ime_name" translatable="false">HeliBoard Compact</string></resources>\\n',
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<resources><string name="compact_ime_name" translatable="false">HeliBoard Compact</string></resources>\n',
     encoding="utf-8"
 )
 
