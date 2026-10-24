@@ -65,4 +65,13 @@ assert "this receiver can run while the setup" in receiver
 latin = (app / "src/main/java/helium314/keyboard/latin/LatinIME.java").read_text()
 assert "mInlineVoiceInput.toggle(" in latin
 assert "mRichImm.switchToShortcutIme(this)" not in latin
-print("PASS: side-by-side provider IDs, welcome startup safety, launcher/IME/permission, bilingual layouts, symbol row and inline voice")
+voice = (overlay / "VoiceInputController.java").read_text()
+assert "RecognizerIntent.EXTRA_PARTIAL_RESULTS, true" in voice
+assert "onPartialResults(Bundle results)" in voice
+assert "targetConnection.setComposingText(partial, 1)" in voice
+assert "targetConnection.commitText(text + \" \", 1)" in voice
+assert "scheduleRestart(NEXT_UTTERANCE_DELAY_MS)" in voice
+assert "scheduleRestart(SILENCE_RETRY_DELAY_MS)" in voice
+assert "void stop()" in voice and "mainHandler.removeCallbacks(pendingRestart)" in voice
+assert "ERROR_TOO_MANY_REQUESTS" in voice
+print("PASS: compact layouts and install identifiers; voice partial preview, auto-restart and manual stop guards")
