@@ -1,0 +1,529 @@
+[
+  [
+    {
+      "label": "("
+    },
+    {
+      "label": ")"
+    },
+    {
+      "label": "["
+    },
+    {
+      "label": "]"
+    },
+    {
+      "label": "{"
+    },
+    {
+      "label": "}"
+    },
+    {
+      "label": "<"
+    },
+    {
+      "label": ">"
+    },
+    {
+      "label": "/"
+    },
+    {
+      "label": "="
+    },
+    {
+      "label": ";",
+      "popup": {
+        "relevant": [
+          {
+            "label": "◌َ",
+            "code": 1614
+          },
+          {
+            "label": "◌ُ",
+            "code": 1615
+          },
+          {
+            "label": "◌ِ",
+            "code": 1616
+          },
+          {
+            "label": "◌ً",
+            "code": 1611
+          },
+          {
+            "label": "◌ٌ",
+            "code": 1612
+          },
+          {
+            "label": "◌ٍ",
+            "code": 1613
+          },
+          {
+            "label": "◌ْ",
+            "code": 1618
+          },
+          {
+            "label": "◌ّ",
+            "code": 1617
+          },
+          {
+            "label": "◌ٰ",
+            "code": 1648
+          },
+          {
+            "label": "◌ٓ",
+            "code": 1619
+          }
+        ]
+      }
+    },
+    {
+      "label": "\""
+    },
+    {
+      "label": "."
+    },
+    {
+      "label": "-"
+    },
+    {
+      "label": "*"
+    },
+    {
+      "label": "\\"
+    }
+  ],
+  [
+    {
+      "label": "ض"
+    },
+    {
+      "label": "ص"
+    },
+    {
+      "label": "ث"
+    },
+    {
+      "label": "ق"
+    },
+    {
+      "label": "ف"
+    },
+    {
+      "label": "غ"
+    },
+    {
+      "label": "ع"
+    },
+    {
+      "label": "ه",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ة"
+          }
+        ]
+      }
+    },
+    {
+      "label": "خ"
+    },
+    {
+      "label": "ح"
+    },
+    {
+      "label": "ج"
+    }
+  ],
+  [
+    {
+      "label": "ش"
+    },
+    {
+      "label": "س"
+    },
+    {
+      "label": "ي",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ئ"
+          },
+          {
+            "label": "ى"
+          },
+          {
+            "label": "◌َ",
+            "code": 1614
+          },
+          {
+            "label": "◌ُ",
+            "code": 1615
+          },
+          {
+            "label": "◌ِ",
+            "code": 1616
+          },
+          {
+            "label": "◌ً",
+            "code": 1611
+          },
+          {
+            "label": "◌ٌ",
+            "code": 1612
+          },
+          {
+            "label": "◌ٍ",
+            "code": 1613
+          },
+          {
+            "label": "◌ْ",
+            "code": 1618
+          },
+          {
+            "label": "◌ّ",
+            "code": 1617
+          },
+          {
+            "label": "◌ٰ",
+            "code": 1648
+          },
+          {
+            "label": "◌ٓ",
+            "code": 1619
+          }
+        ]
+      }
+    },
+    {
+      "label": "ب"
+    },
+    {
+      "label": "ل",
+      "popup": {
+        "relevant": [
+          {
+            "label": "لا"
+          },
+          {
+            "label": "لأ"
+          },
+          {
+            "label": "لإ"
+          },
+          {
+            "label": "لآ"
+          }
+        ]
+      }
+    },
+    {
+      "label": "ا",
+      "popup": {
+        "relevant": [
+          {
+            "label": "أ"
+          },
+          {
+            "label": "إ"
+          },
+          {
+            "label": "آ"
+          },
+          {
+            "label": "ٱ"
+          },
+          {
+            "label": "ء"
+          },
+          {
+            "label": "◌َ",
+            "code": 1614
+          },
+          {
+            "label": "◌ُ",
+            "code": 1615
+          },
+          {
+            "label": "◌ِ",
+            "code": 1616
+          },
+          {
+            "label": "◌ً",
+            "code": 1611
+          },
+          {
+            "label": "◌ٌ",
+            "code": 1612
+          },
+          {
+            "label": "◌ٍ",
+            "code": 1613
+          },
+          {
+            "label": "◌ْ",
+            "code": 1618
+          },
+          {
+            "label": "◌ّ",
+            "code": 1617
+          },
+          {
+            "label": "◌ٰ",
+            "code": 1648
+          },
+          {
+            "label": "◌ٓ",
+            "code": 1619
+          }
+        ]
+      }
+    },
+    {
+      "label": "ت",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ة"
+          }
+        ]
+      }
+    },
+    {
+      "label": "ن"
+    },
+    {
+      "label": "م"
+    },
+    {
+      "label": "ك"
+    },
+    {
+      "label": "ط"
+    }
+  ],
+  [
+    {
+      "label": "ذ"
+    },
+    {
+      "label": "ء",
+      "popup": {
+        "relevant": [
+          {
+            "label": "أ"
+          },
+          {
+            "label": "إ"
+          },
+          {
+            "label": "آ"
+          },
+          {
+            "label": "ؤ"
+          },
+          {
+            "label": "ئ"
+          },
+          {
+            "label": "ٱ"
+          },
+          {
+            "label": "ة"
+          },
+          {
+            "label": "◌َ",
+            "code": 1614
+          },
+          {
+            "label": "◌ُ",
+            "code": 1615
+          },
+          {
+            "label": "◌ِ",
+            "code": 1616
+          },
+          {
+            "label": "◌ً",
+            "code": 1611
+          },
+          {
+            "label": "◌ٌ",
+            "code": 1612
+          },
+          {
+            "label": "◌ٍ",
+            "code": 1613
+          },
+          {
+            "label": "◌ْ",
+            "code": 1618
+          },
+          {
+            "label": "◌ّ",
+            "code": 1617
+          },
+          {
+            "label": "◌ٰ",
+            "code": 1648
+          },
+          {
+            "label": "◌ٓ",
+            "code": 1619
+          }
+        ]
+      }
+    },
+    {
+      "label": "ؤ",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ء"
+          },
+          {
+            "label": "و"
+          },
+          {
+            "label": "ئ"
+          }
+        ]
+      }
+    },
+    {
+      "label": "ر",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ز"
+          }
+        ]
+      }
+    },
+    {
+      "label": "ى",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ي"
+          },
+          {
+            "label": "ئ"
+          },
+          {
+            "label": "◌َ",
+            "code": 1614
+          },
+          {
+            "label": "◌ُ",
+            "code": 1615
+          },
+          {
+            "label": "◌ِ",
+            "code": 1616
+          },
+          {
+            "label": "◌ً",
+            "code": 1611
+          },
+          {
+            "label": "◌ٌ",
+            "code": 1612
+          },
+          {
+            "label": "◌ٍ",
+            "code": 1613
+          },
+          {
+            "label": "◌ْ",
+            "code": 1618
+          },
+          {
+            "label": "◌ّ",
+            "code": 1617
+          },
+          {
+            "label": "◌ٰ",
+            "code": 1648
+          },
+          {
+            "label": "◌ٓ",
+            "code": 1619
+          }
+        ]
+      }
+    },
+    {
+      "label": "ة",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ه"
+          },
+          {
+            "label": "ت"
+          },
+          {
+            "label": "◌َ",
+            "code": 1614
+          },
+          {
+            "label": "◌ُ",
+            "code": 1615
+          },
+          {
+            "label": "◌ِ",
+            "code": 1616
+          },
+          {
+            "label": "◌ً",
+            "code": 1611
+          },
+          {
+            "label": "◌ٌ",
+            "code": 1612
+          },
+          {
+            "label": "◌ٍ",
+            "code": 1613
+          },
+          {
+            "label": "◌ْ",
+            "code": 1618
+          },
+          {
+            "label": "◌ّ",
+            "code": 1617
+          },
+          {
+            "label": "◌ٰ",
+            "code": 1648
+          },
+          {
+            "label": "◌ٓ",
+            "code": 1619
+          }
+        ]
+      }
+    },
+    {
+      "label": "و",
+      "popup": {
+        "relevant": [
+          {
+            "label": "ؤ"
+          }
+        ]
+      }
+    },
+    {
+      "label": "ز"
+    },
+    {
+      "label": "ظ"
+    },
+    {
+      "label": "د"
+    }
+  ]
+]
