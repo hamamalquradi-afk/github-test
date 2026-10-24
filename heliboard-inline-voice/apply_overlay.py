@@ -156,9 +156,19 @@ for resource_name, old_authority, new_authority in (
 m = manifest.read_text(encoding="utf-8")
 if m.count('android:label="@string/english_ime_name"') != 2:
     raise RuntimeError("Unexpected application/service label changes")
+# Keep a STRING RESOURCE reference in the application manifest. The upstream
+# WelcomeWizard reads applicationInfo.labelRes and passes it to stringResource().
+# A literal label clears labelRes to zero and crashes on first launch with
+# Resources$NotFoundException: String resource ID #0x0.
 m = m.replace('android:label="@string/english_ime_name"',
-              'android:label="HeliBoard Compact"')
+              'android:label="@string/compact_ime_name"')
 manifest.write_text(m, encoding="utf-8")
+name_resource = root / "app/src/debug/res/values/compact_ime_name.xml"
+name_resource.write_text(
+    '<?xml version="1.0" encoding="utf-8"?>\\n'
+    '<resources><string name="compact_ime_name" translatable="false">HeliBoard Compact</string></resources>\\n',
+    encoding="utf-8"
+)
 
 print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
