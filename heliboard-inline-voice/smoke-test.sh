@@ -26,7 +26,13 @@ adb shell am start -W -n "$package/helium314.keyboard.settings.SettingsActivity"
 sleep 7
 mkdir -p heliboard-inline-voice/test-results
 log="heliboard-inline-voice/test-results/emulator-logcat.txt"
-adb logcat -d -v time > "$log"
+# A fresh emulator emits thousands of unrelated boot log lines. On overloaded
+# runners a full adb logcat dump can disconnect with exit 255 and falsely fail
+# the smoke test. Use a bounded snapshot; process and IME checks still gate CI.
+if ! adb logcat -d -t 1200 -v time > "$log"; then
+  echo "WARN: bounded logcat snapshot failed; retrying with a smaller window"
+  adb logcat -d -t 300 -v time > "$log" || true
+fi
 if grep -Fq "Process: ${package}, PID:" "$log"; then
   grep -B 20 -A 55 -F "Process: ${package}, PID:" "$log" || true
   echo "FAIL: Android logged a fatal crash for Compact during launcher startup"
@@ -50,7 +56,13 @@ if ! adb shell pidof "$package" | grep -Eq '[0-9]'; then
   echo "FAIL: IME process exited"
   exit 1
 fi
-adb logcat -d -v time > "$log"
+# A fresh emulator emits thousands of unrelated boot log lines. On overloaded
+# runners a full adb logcat dump can disconnect with exit 255 and falsely fail
+# the smoke test. Use a bounded snapshot; process and IME checks still gate CI.
+if ! adb logcat -d -t 1200 -v time > "$log"; then
+  echo "WARN: bounded logcat snapshot failed; retrying with a smaller window"
+  adb logcat -d -t 300 -v time > "$log" || true
+fi
 # Android crash logs include this exact process line next to a fatal exception.
 if grep -E "Process: ${package}, PID: " "$log"; then
   grep -B 15 -A 45 -E "Process: ${package}, PID: " "$log" || true
