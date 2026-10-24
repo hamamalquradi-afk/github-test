@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--package', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--expect-startup-crash', action='store_true')
+    parser.add_argument('--stable-apk-dir')
     args = parser.parse_args()
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
@@ -33,6 +34,9 @@ def main():
         apk = apks[0]
         report['apk_sha256'] = hashlib.sha256(apk.read_bytes()).hexdigest()
         report['apk_name'] = apk.name
+        if args.stable_apk_dir:
+            from runtime_smoke import install_stable
+            install_stable(args, out, report)
         (out/'install.txt').write_text(adb('install', '-r', str(apk)), encoding='utf-8')
         adb('logcat', '-c')
         adb('shell', 'am', 'force-stop', args.package)
@@ -48,18 +52,22 @@ def main():
         if args.expect_startup_crash:
             assert crash, 'Reported broken APK did not reproduce a startup crash'
             assert 'Resources$NotFoundException' in log, 'Unexpected crash: inspect Logcat'
-            assert 'Resource ID #0x0' in log, 'Expected missing application label resource'
+            assert 'resource ID #0x0' in log, 'Expected missing application label resource'
             report['checks']['missing_label_resource_crash_reproduced'] = True
+            print('\n'.join(line for line in log.splitlines() if 'AndroidRuntime' in line)[:12000])
         else:
             assert not crash, 'App crashed: inspect Logcat'
             assert report['process_after_launch'], 'App process disappeared after launch'
             report['checks']['settings_launch'] = True
+            from runtime_smoke import verify_ime
+            verify_ime(args, out, report)
         report['status'] = 'passed'
     except Exception as e:
         report['status'] = 'failed'
         report['error'] = str(e)
         (out/'probe-error.txt').write_text(traceback.format_exc(), encoding='utf-8')
     finally:
+        (out/'final-logcat.txt').write_text(adb('logcat', '-d', '-v', 'threadtime', check=False), encoding='utf-8')
         (out/'package.txt').write_text(adb('shell', 'dumpsys', 'package', args.package, check=False), encoding='utf-8')
         (out/'crash-buffer.txt').write_text(adb('logcat', '-b', 'crash', '-d', check=False), encoding='utf-8')
         with (out/'screen.png').open('wb') as f:

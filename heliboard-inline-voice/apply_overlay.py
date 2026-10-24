@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Apply an exact, fail-closed HeliBoard voice overlay to the pinned upstream source.
-
-No modifications are made to keyboard layouts or user's imported custom layouts.
-"""
+"""Apply the pinned inline-voice/compact overlay; preserve imported user layouts."""
 from pathlib import Path
 import shutil
 import sys
@@ -51,6 +48,15 @@ s = replace_once(s,
     "            return; // never send VOICE_INPUT to the normal key processing path\n"
     "        }",
     "voice key handler")
+latin.write_text(s, encoding="utf-8")
+
+# A recognizer session belongs to exactly one editor, including restart transitions.
+s = latin.read_text(encoding="utf-8")
+s = replace_once(s,
+    "    private void onStartInputInternal(EditorInfo editorInfo, boolean restarting) {\n",
+    "    private void onStartInputInternal(EditorInfo editorInfo, boolean restarting) {\n"
+    "        if (mInlineVoiceInput != null) mInlineVoiceInput.stop();\n",
+    "stop voice on editor transition")
 latin.write_text(s, encoding="utf-8")
 
 m = manifest.read_text(encoding="utf-8")
@@ -132,17 +138,41 @@ g = replace_once(g,
     "            applicationIdSuffix = \".debug\"\n",
     "            isMinifyEnabled = true\n"
     "            isJniDebuggable = false\n"
-    "            applicationIdSuffix = \".compactdebug\"\n",
+    "            applicationIdSuffix = \".compactfixdebug\"\n",
     "unique experimental application id")
 build.write_text(g, encoding="utf-8")
 
-# Clearly distinguish the compact test IME from an existing stable HeliBoard.
+# applicationIdSuffix alone does not rewrite hard-coded FileProvider authorities.
+# Keep the known-good debug app installable alongside this separately signed APK.
+for filename, authority in (("clip_provider.xml", "clipprovider"),
+                            ("gesture_data.xml", "provider")):
+    provider = root / "app/src/debug/res/values" / filename
+    text = provider.read_text(encoding="utf-8")
+    text = replace_once(text, "helium314.keyboard.debug." + authority,
+                        "helium314.keyboard.compactfixdebug." + authority,
+                        "isolated " + authority + " authority")
+    provider.write_text(text, encoding="utf-8")
+
+# WelcomeWizard calls stringResource(applicationInfo.labelRes). A literal label
+# sets labelRes to zero and crashes a fresh install before the IME is enabled.
+# Keep both application/service labels as references to a dedicated resource.
 m = manifest.read_text(encoding="utf-8")
 if m.count('android:label="@string/english_ime_name"') != 2:
     raise RuntimeError("Unexpected application/service label changes")
 m = m.replace('android:label="@string/english_ime_name"',
-              'android:label="HeliBoard Compact"')
+              'android:label="@string/compact_ime_name"')
 manifest.write_text(m, encoding="utf-8")
+label_resource = root / "app/src/main/res/values/compact_strings.xml"
+label_resource.write_text(
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<resources>\n'
+    '    <string name="compact_ime_name" translatable="false">HeliBoard Compact Fix</string>\n'
+    '</resources>\n', encoding="utf-8")
+
+# Copy regression tests only into the test source set, never into the APK.
+tests = overlay / "tests/upstream"
+if tests.is_dir():
+    shutil.copytree(tests, root / "app/src/test/java", dirs_exist_ok=True)
 
 print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")

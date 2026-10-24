@@ -1,4 +1,54 @@
 # HeliBoard — inline voice input (experimental)
+
+## Compact runtime repair (Android 12 regression)
+
+Work is isolated on `fix/heliboard-compact-runtime-20261024`. The working
+`dc1c35b` commit and `heliboard-inline-voice-v1` branch are not changed.
+
+The exact APK from run `40098360205` was installed and launched on an API 31
+emulator in run `40102641866`. Logcat reproduced:
+
+```
+android.content.res.Resources$NotFoundException: String resource ID #0x0
+at helium314.keyboard.settings.WelcomeWizardKt.WelcomeWizard(WelcomeWizard.kt:86)
+```
+
+The compact overlay used a literal application label. Android therefore set
+`ApplicationInfo.labelRes` to zero, but the welcome screen calls
+`stringResource(applicationInfo.labelRes)`. The overlay now uses a dedicated
+`@string/compact_ime_name` resource for both application and service labels.
+The relevant captured stack is in `evidence/baseline-40098360205/stacktrace.txt`.
+
+The repair APK uses `helium314.keyboard.compactfixdebug`, a different ID from
+both the working voice APK (`helium314.keyboard.debug`) and the broken compact
+APK (`helium314.keyboard.compactdebug`). Both debug FileProvider authorities
+are changed as well, avoiding conflicts when the previous app remains installed.
+Debug signing keys remain per-run; keep testing as a separate installation.
+
+The recognizer provider and recognition intent are preserved. Editor transitions
+cancel the old session, stale icon posts are ignored, null results are safe,
+and provider cleanup failures do not escape IME teardown. Only final results
+are committed, once. Password/PIN input remains blocked.
+
+Arabic/English character layouts, the 16-key coding row, Arabic popup marks,
+and compact height defaults are preserved. Shift and Esc are directly accessible
+in the bottom control row with Ctrl, Alt, Tab, language, space, period, action,
+and symbols. Tests decode the actual packaged layouts using `LayoutParser`.
+
+`.github/workflows/heliboard-compact-runtime.yml` reproduces the old APK failure,
+runs upstream unit tests plus overlay regressions, builds the new debug APK,
+and exercises it on Android 12 before publishing **HeliBoard-Compact-Fix-debug**.
+Inspect each run's unit reports and runtime JSON/Logcat/screenshots for its actual
+outcome. An emulator pass does not certify every Android device or speech provider.
+Speech unit tests mock Android's platform recognizer; the emulator does not prove
+real audio transcription, speech accuracy, or live audio on the user's phone.
+
+The emulator fixture is a separate tiny APK compiled only during CI; it is never
+included in the delivered HeliBoard APK. It provides text/password fields for
+real IME typing, switching, popup, controls, hide/reopen and rotation checks.
+
+---
+The original voice-overlay notes below describe the earlier proof of concept.
 **بالعربية:** هذا فرع تجريبي على حسابك. لا يغيّر مستودعك الرئيسي ولا تخطيط لوحة المفاتيح المخصص. لعدم توفر صلاحية إنشاء Fork من الاتصال الحالي، توجد هنا ملفات تعديل تُطبَّق تلقائيًا على المصدر الرسمي المثبّت بالإصدار المحدد عند البناء.
 
 ## Goal

@@ -44,3 +44,79 @@ jobs:
           name: HeliBoard-baseline-runtime-evidence
           path: runtime-baseline/
           if-no-files-found: error
+
+  build-and-test-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout unchanged pinned HeliBoard 4.3-beta1
+        run: |
+          git init heliboard-source
+          git -C heliboard-source remote add origin https://github.com/HeliBorg/HeliBoard.git
+          git -C heliboard-source fetch --depth 1 origin e97acdbe7ad16ef06d89d71d35ed1096e6d69f4c
+          git -C heliboard-source checkout --detach FETCH_HEAD
+      - name: Apply compact runtime repair
+        run: python3 heliboard-inline-voice/apply_overlay.py heliboard-source
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned SDK and NDK
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses >/dev/null || true
+          "$SDKMGR" --channel=3 "platforms;android-37.0" "build-tools;37.0.0" "ndk;28.0.13004108"
+          if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+            ln -s android-37.0 "$ANDROID_HOME/platforms/android-37"
+          fi
+      - name: Run project unit tests and compile new Debug APK
+        working-directory: heliboard-source
+        run: |
+          chmod +x gradlew
+          ./gradlew testRunTestsUnitTest assembleDebug --stacktrace
+      - name: Preserve test reports and source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-compact-unit-test-reports
+          path: |
+            heliboard-source/app/build/reports/tests/
+            heliboard-source/app/build/test-results/
+            heliboard-inline-voice/evidence/
+          if-no-files-found: warn
+      - name: Download previous stable APK for side-by-side test
+        uses: actions/download-artifact@v4
+        with:
+          name: HeliBoard-inline-voice-debug
+          run-id: 40093348555
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: stable-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test actual fixed APK on Android 12
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: python3 heliboard-inline-voice/tests/runtime_probe.py --apk-dir heliboard-source/app/build/outputs/apk/debug --package helium314.keyboard.compactfixdebug --output runtime-fixed --stable-apk-dir stable-apk
+      - name: Preserve real runtime logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-compact-fixed-runtime-evidence
+          path: runtime-fixed/
+          if-no-files-found: warn
+      - name: Publish only the new runtime-tested APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-Compact-Fix-debug
+          path: heliboard-source/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

@@ -1,0 +1,16 @@
+--------- beginning of crash
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: FATAL EXCEPTION: main
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: Process: helium314.keyboard.compactdebug, PID: 2299
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: android.content.res.Resources$NotFoundException: String resource ID #0x0
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at android.content.res.Resources.getText(Resources.java:444)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at android.content.res.Resources.getString(Resources.java:537)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at androidx.compose.ui.res.StringResources_androidKt.stringResource(StringResources.android.kt:35)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at helium314.keyboard.settings.WelcomeWizardKt.WelcomeWizard(WelcomeWizard.kt:86)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at helium314.keyboard.settings.SettingsActivity.onCreate$lambda$1$0$0(SettingsActivity.kt:117)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at helium314.keyboard.settings.SettingsActivity.$r8$lambda$EQS2JQ6pkNR2_VZ7GRKESWLKeC0(SettingsActivity.kt:0)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at helium314.keyboard.settings.SettingsActivity$$ExternalSyntheticLambda5.invoke(R8$$SyntheticClass:0)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at androidx.compose.runtime.internal.ComposableLambdaImpl.invoke(ComposableLambda.kt:121)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at androidx.compose.runtime.internal.ComposableLambdaImpl.invoke(ComposableLambda.kt:51)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at androidx.compose.material3.SurfaceKt$Surface$1.invoke(Surface.kt:130)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at androidx.compose.material3.SurfaceKt$Surface$1.invoke(Surface.kt:110)
+10-24 14:31:02.043  2299  2299 E AndroidRuntime: 	at androidx.compose.runtime.internal.ComposableLambdaImpl.invoke(ComposableLambda.kt:121)

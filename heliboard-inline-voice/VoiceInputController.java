@@ -111,15 +111,17 @@ final class VoiceInputController {
                 @Override public void onResults(Bundle results) {
                     if (session != generation) return;
                     ArrayList<String> options =
-                            results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    final String text = (options == null || options.isEmpty())
+                            results == null ? null
+                                    : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    final String text = (options == null || options.isEmpty() || options.get(0) == null)
                             ? "" : options.get(0).trim();
+                    // Invalidate before committing: even reentrant/late callbacks insert once.
+                    stop();
                     // An input field might have changed during recognition.
                     if (!text.isEmpty() && ime.getCurrentInputConnection() == initialConnection
                             && !isSensitiveField(ime.getCurrentInputEditorInfo())) {
                         initialConnection.commitText(text, 1);
                     }
-                    stop();
                 }
             });
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
@@ -145,7 +147,7 @@ final class VoiceInputController {
             final SpeechRecognizer old = recognizer;
             recognizer = null;
             try { old.cancel(); } catch (RuntimeException ignored) { }
-            old.destroy();
+            try { old.destroy(); } catch (RuntimeException ignored) { }
         }
     }
 
@@ -178,9 +180,10 @@ final class VoiceInputController {
         if (ime.getWindow() == null || ime.getWindow().getWindow() == null) return;
         final View root = ime.getWindow().getWindow().getDecorView();
         if (root == null) return;
+        final int iconGeneration = generation;
         root.post(() -> {
-            // Don't show a stale green mic if recognition already stopped.
-            if (active && !listening) return;
+            // Both old start AND old stop posts must not repaint a newer session.
+            if (iconGeneration != generation || active != listening) return;
             ImageButton mic = findVoiceButton(root);
             if (mic == null) return; // toolbar hidden: native speech toast still reports status
             if (active) {
