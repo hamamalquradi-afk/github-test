@@ -59,7 +59,10 @@ for required in ("shift", "delete", "symbol_alpha", "Ctrl", "Alt", "Tab", "langu
     assert required in labels, required
 assert not any(label in labels for label in ("arrow_left", "arrow_right"))
 
+receiver = (app / "src/main/java/helium314/keyboard/latin/SystemBroadcastReceiver.java").read_text()
+assert "Process.killProcess(myPid)" not in receiver
+assert "this receiver can run while the setup" in receiver
 latin = (app / "src/main/java/helium314/keyboard/latin/LatinIME.java").read_text()
 assert "mInlineVoiceInput.toggle(" in latin
 assert "mRichImm.switchToShortcutIme(this)" not in latin
-print("PASS: side-by-side provider IDs, launcher/IME/permission, bilingual layouts, symbol row and inline voice")
+print("PASS: side-by-side provider IDs, welcome startup safety, launcher/IME/permission, bilingual layouts, symbol row and inline voice")
