@@ -28,9 +28,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install SDK and NDK required by pinned source
         run: |
+          echo "Using SDK: ${ANDROID_HOME:-${ANDROID_SDK_ROOT:-unknown}}"
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;28.0.13004108"
       - name: Build experimental debug APK
