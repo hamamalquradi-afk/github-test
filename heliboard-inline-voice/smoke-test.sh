@@ -7,7 +7,17 @@ ime="${package}/helium314.keyboard.latin.LatinIME"
 adb wait-for-device
 adb shell input keyevent 82 >/dev/null || true
 adb logcat -c
+legacy_apk="${2:-}"
+if [ -n "$legacy_apk" ] && [ -f "$legacy_apk" ]; then
+  adb install -r "$legacy_apk"
+  adb shell pm path helium314.keyboard.debug | grep -Fq helium314.keyboard.debug
+  echo "Installed previous debug APK first to verify coexistence"
+fi
 adb install -r "$apk"
+if [ -n "$legacy_apk" ] && [ -f "$legacy_apk" ]; then
+  adb shell pm path helium314.keyboard.debug | grep -Fq helium314.keyboard.debug
+  echo "PASS: previous HeliBoard debug installation survived alongside Compact"
+fi
 adb shell pm path "$package" | grep -Fq "$package"
 echo "Installed $package without uninstalling an existing HeliBoard variant"
 
