@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build-debug:
@@ -55,6 +56,15 @@ jobs:
           name: HeliBoard-inline-voice-debug
           path: heliboard-source/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+      - name: Retrieve previous working test APK for install-compatibility test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p /tmp/heliboard-previous
+          if ! gh run download 40093348555 --repo "${{ github.repository }}" --name HeliBoard-inline-voice-debug --dir /tmp/heliboard-previous; then
+            echo "Previous artifact unavailable: side-by-side install test will be skipped."
+          fi
       - name: Enable KVM for Android emulator
         run: |
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
@@ -66,7 +76,7 @@ jobs:
           arch: x86_64
           emulator-boot-timeout: 600
           disable-animations: true
-          script: bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk
+          script: bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk /tmp/heliboard-previous/HeliBoard_4.3-beta1-debug.apk
       - name: Preserve build failure reports
         if: failure()
         uses: actions/upload-artifact@v4
