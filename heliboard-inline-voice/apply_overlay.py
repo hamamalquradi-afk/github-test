@@ -77,5 +77,49 @@ manifest.write_text(m, encoding="utf-8")
 for name in ("VoiceInputController.java", "VoicePermissionActivity.java"):
     shutil.copy2(overlay / name, src / name)
 
+
+# Screenshot-matched 16-symbol row, bilingual layouts, and compact bottom controls.
+# Imported user layouts remain untouched: these only replace packaged built-ins.
+assets = root / "app/src/main/assets/layouts"
+for source, dest in (
+    ("arabic.json", assets / "main/arabic.txt"),
+    ("qwerty.json", assets / "main/qwerty.txt"),
+    ("functional_keys.json", assets / "functional/functional_keys.json")
+):
+    shutil.copy2(overlay / "layouts" / source, dest)
+
+# With a fixed top symbols row, numeric hints belong on the FIRST LETTER row.
+# A narrow exact-match guard avoids accidentally changing other layouts.
+parser = root / "app/src/main/java/helium314/keyboard/keyboard/internal/keyboard_parser/KeyboardParser.kt"
+k = parser.read_text(encoding="utf-8")
+k = replace_once(k,
+    "        } else if (!params.mId.numberRowEnabled && params.mId.element.isAlphabet && !hasBuiltInNumbers()) {\n",
+    "        } else if (!params.mId.numberRowEnabled && params.mId.element.isAlphabet && !hasBuiltInNumbers()) {\n"
+    "            val popupHintRow = if (baseKeys.size >= 4 && baseKeys[0].size == 16 && baseKeys[0][0].label == \"(\") 1 else 0\n",
+    "number-hint row picker")
+k = replace_once(k, "            if (baseKeys[0].any { it.popup.main != null || !it.popup.relevant.isNullOrEmpty() }",
+    "            if (baseKeys[popupHintRow].any { it.popup.main != null || !it.popup.relevant.isNullOrEmpty() }",
+    "number-hint popup conflict")
+k = replace_once(k,
+    "            baseKeys.first().forEachIndexed { index, keyData -> keyData.popup.numberLabel = numberRow.getOrNull(index)?.label }",
+    "            baseKeys[popupHintRow].forEachIndexed { index, keyData -> keyData.popup.numberLabel = numberRow.getOrNull(index)?.label }",
+    "number-hint target")
+parser.write_text(k, encoding="utf-8")
+
+# Compact defaults affect only installations with no explicit size preference.
+# Existing users can set keyboard height / bottom row height in Appearance.
+defaults = root / "app/src/main/java/helium314/keyboard/latin/settings/Defaults.kt"
+d = defaults.read_text(encoding="utf-8")
+d = replace_once(d,
+    "    val PREF_KEYBOARD_HEIGHT_SCALE = Array(4) { DEFAULT_SIZE_SCALE }",
+    "    val PREF_KEYBOARD_HEIGHT_SCALE = arrayOf(0.84f, 0.90f, 0.84f, 0.90f)",
+    "default keyboard height")
+d = replace_once(d,
+    "    val PREF_BOTTOM_ROW_SCALE = Array(4) { DEFAULT_SIZE_SCALE }",
+    "    val PREF_BOTTOM_ROW_SCALE = Array(4) { 0.72f }",
+    "default bottom row height")
+defaults.write_text(d, encoding="utf-8")
+
 print("Patched pinned HeliBoard source in", root)
-print("Input layout resources unchanged; voice mic now remains in LatinIME.")
+print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
+print("Imported custom layout files and Android speech-recognition service remain unchanged.")
