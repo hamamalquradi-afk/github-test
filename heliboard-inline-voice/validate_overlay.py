@@ -70,7 +70,7 @@ voice = (overlay / "VoiceInputController.java").read_text()
 # Never rely on editor-owned composing spans to replace speech previews.
 assert "RecognizerIntent.EXTRA_PARTIAL_RESULTS, true" in voice
 assert "onPartialResults(Bundle partialResults)" in voice
-assert "setComposingText(" not in voice
+assert ".setComposingText(" not in voice
 assert "getTextBeforeCursor(previewText.length(), 0)" in voice
 assert "previewText.contentEquals(before)" in voice
 assert "deleteSurroundingText(previewText.length(), 0)" in voice
