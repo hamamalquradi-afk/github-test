@@ -31,8 +31,10 @@ jobs:
       - name: Install SDK and NDK required by pinned source
         run: |
           echo "Using SDK: ${ANDROID_HOME:-${ANDROID_SDK_ROOT:-unknown}}"
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;28.0.13004108"
+          SDKMGR="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMGR"
+          yes | "$SDKMGR" --licenses >/dev/null || true
+          "$SDKMGR" "platforms;android-37" "build-tools;37.0.0" "ndk;28.0.13004108"
       - name: Build experimental debug APK
         working-directory: heliboard-source
         run: |
