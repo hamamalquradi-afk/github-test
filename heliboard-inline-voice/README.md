@@ -1,32 +1,31 @@
-# HeliBoard — inline voice input (experimental)
-**بالعربية:** هذا فرع تجريبي على حسابك. لا يغيّر مستودعك الرئيسي ولا تخطيط لوحة المفاتيح المخصص. لعدم توفر صلاحية إنشاء Fork من الاتصال الحالي، توجد هنا ملفات تعديل تُطبَّق تلقائيًا على المصدر الرسمي المثبّت بالإصدار المحدد عند البناء.
+# HeliBoard Compact — inline microphone (experimental Android debug APK)
 
-## Goal
-Press the voice key and use Android SpeechRecognizer **without switching away from HeliBoard**. The keyboard and custom programming-symbol row remain visible during recognition.
+This directory contains an overlay for the pinned upstream [HeliBoard](https://github.com/HeliBorg/HeliBoard) source, commit `e97acdbe7ad16ef06d89d71d35ed1096e6d69f4c` (4.3-beta1). The GitHub Action fetches that exact upstream revision, applies the overlay and builds the APK. The original source repository and this repository's `main` branch are not changed.
 
-## Upstream
-- Source: https://github.com/HeliBorg/HeliBoard
-- Locked commit: `e97acdbe7ad16ef06d89d71d35ed1096e6d69f4c` (2026-10-18)
-- Source licensed under GPL-3.0-only / Apache-2.0 components.
+## What is included
 
-## Implementation
-- `VoiceInputController.java`: recognizer lifecycle, locale, final text insertion, password protection, results deduplication.
-- `VoicePermissionActivity.java`: Android microphone runtime permission.
-- `apply_overlay.py`: fail-closed modifications to `LatinIME.java` and `AndroidManifest.xml`.
-- `.github/workflows/heliboard-inline-voice.yml`: clones the official source, applies edits, and attempts to build a debug APK.
+- Inline Android `SpeechRecognizer` invoked from the keyboard microphone key without switching input methods. First use launches the Android microphone permission screen. Recognition depends on a speech service on the device and **may send speech to a provider/cloud**; offline recognition is not guaranteed.
+- Bundled Arabic and English QWERTY layouts, a 16-symbol programming row, accessible Shift/Ctrl/Alt/Tab keys, a compact bottom row and extra Arabic marks. The comma adapts to email and URL input fields.
+- Green listening indicator on the microphone toolbar icon when available, plus a status Toast.
+- Recognition disabled for passwords/PINs, and existing input connection checked before inserting a final transcript.
 
-## Using it
-Open this branch's **Actions** tab and look for *HeliBoard inline voice APK*. Each push to this branch attempts a build. If successful, open the run and download the **HeliBoard-inline-voice-debug** artifact. The Android debug package is separate from the stable app (app ID `helium314.keyboard.debug`).
+## Install safely
 
-1. Back up your HeliBoard preferences and your imported custom keyboard layout.
-2. Install the debug APK, switch Android's default input method to the new app for testing, and import your backed-up layout if needed.
-3. On the first mic press, allow microphone access, return to the text field, and press the mic again.
-4. With a recognition service installed and configured, you can speak while the keyboard remains visible. Press mic again to cancel.
+1. Download `HeliBoard-inline-voice-debug` from the most recent successful [Actions run](https://github.com/hamamalquradi-afk/github-test/actions/workflows/heliboard-inline-voice.yml) and extract the APK from the ZIP artifact.
+2. The compact debug test app has **application ID `helium314.keyboard.compactdebug`**, with unique clipboard/gesture provider authorities. It is intended to install alongside regular HeliBoard and the earlier `helium314.keyboard.debug` testing app. Do **not** uninstall your existing working keyboard.
+3. Export/backup preferences and custom layouts before importing them into the test app. Imported custom layouts are not overwritten by the build overlay, but they are not automatically shared across different app IDs.
+4. Enable HeliBoard Compact in Android settings, select it as the current keyboard, then test Arabic/English, punctuation, Ctrl/Alt/Shift, and microphone insertion in an ordinary text field.
 
-## Limits / security
-- Speech processing may use the recognizer provider's **network/cloud**: this patch does **not** guarantee offline/private transcription.
-- The current status is shown with a temporary Toast instead of a toolbar listening indicator.
-- Results are inserted only when the same input connection is still active.
-- Password and numeric PIN fields are blocked.
-- No automated build or device test has been verified until a successful GitHub Actions run confirms it.
-- A customized layout shown only in screenshots cannot be reconstructed exactly from screenshots. This patch does not edit those layouts. Import the existing layout into the debug app.
+**Debug signing caveat:** GitHub-hosted runners use temporary Android debug signing keys unless a persistent, private keystore is configured. A later APK with the same `compactdebug` application ID may therefore fail to update the earlier compact test installation due to a different signing certificate. Back up the *compact test app's* settings before uninstalling it, and never uninstall your stable keyboard as a workaround. A release/update-safe production APK requires a securely stored persistent signing key.
+
+## Automated checks
+
+The workflow validates overlay installation authorities and layout invariants, builds the debug APK, attempts the upstream debug JVM tests, and uses an Android emulator to launch the settings/welcome screen and enable/select the IME. Where the earlier working debug APK artifact is accessible, the emulator also tests side-by-side installation. Consult each workflow run for actual pass/fail results; build success alone is **not** proof of microphone accuracy or runtime stability on every phone.
+
+## Manual verification still required
+
+- Start and stop microphone recognition on a real Android phone with an installed recognition service, grant/deny permission, and check Arabic and English final text without switching keyboards.
+- Test app startup, default IME selection, Arabic/English layouts, symbols, Ctrl+A/C/V/Z, long-press diacritics, rotation and sensitive fields.
+- Verify data migration/backup and device-specific voice behavior. No cloud transcription guarantee is made.
+
+Upstream license: GPL-3.0-only and applicable Apache-2.0 component licenses.
