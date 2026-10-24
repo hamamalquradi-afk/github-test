@@ -7,6 +7,12 @@ package helium314.keyboard.latin;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.PorterDuff;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageButton;
+import helium314.keyboard.latin.utils.ToolbarKey;
 import android.os.Build;
 import android.os.Bundle;
 import android.speech.RecognitionListener;
@@ -40,6 +46,7 @@ final class VoiceInputController {
     void toggle(@Nullable Locale locale) {
         if (listening) {
             stop();
+            message("الميكروفون متوقف");
         } else {
             start(locale);
         }
@@ -75,9 +82,13 @@ final class VoiceInputController {
         try {
             recognizer = SpeechRecognizer.createSpeechRecognizer(ime);
             listening = true;
+            updateMicIcon(true);
             recognizer.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) {
-                    if (session == generation) message("🎤 أتكلم الآن — اضغط الميكروفون للإلغاء");
+                    if (session == generation) {
+                        updateMicIcon(true);
+                        message("🎤 جارٍ الاستماع — اضغط الميكروفون للإيقاف");
+                    }
                 }
                 @Override public void onBeginningOfSpeech() { }
                 @Override public void onRmsChanged(float rmsdB) { }
@@ -129,6 +140,7 @@ final class VoiceInputController {
     void stop() {
         generation++;
         listening = false;
+        updateMicIcon(false);
         if (recognizer != null) {
             final SpeechRecognizer old = recognizer;
             recognizer = null;
@@ -157,7 +169,47 @@ final class VoiceInputController {
                 && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
     }
 
+
+    /**
+     * Only changes the current toolbar microphone's visual state.
+     * The chosen Android speech-recognition service is NOT modified.
+     */
+    private void updateMicIcon(final boolean active) {
+        if (ime.getWindow() == null || ime.getWindow().getWindow() == null) return;
+        final View root = ime.getWindow().getWindow().getDecorView();
+        if (root == null) return;
+        root.post(() -> {
+            // Don't show a stale green mic if recognition already stopped.
+            if (active && !listening) return;
+            ImageButton mic = findVoiceButton(root);
+            if (mic == null) return; // toolbar hidden: native speech toast still reports status
+            if (active) {
+                mic.setColorFilter(Color.rgb(28, 181, 89), PorterDuff.Mode.SRC_IN);
+                mic.setContentDescription("جارٍ الاستماع — اضغط لإيقاف الميكروفون");
+            } else {
+                mic.clearColorFilter();
+                mic.setContentDescription("الميكروفون متوقف — اضغط للتحدث");
+            }
+        });
+    }
+
+    @Nullable
+    private static ImageButton findVoiceButton(View root) {
+        if (root instanceof ImageButton && root.getTag() == ToolbarKey.VOICE) {
+            return (ImageButton) root;
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                ImageButton found = findVoiceButton(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private void message(String message) {
         Toast.makeText(ime, message, Toast.LENGTH_SHORT).show();
     }
 }
+
