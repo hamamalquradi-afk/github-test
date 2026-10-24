@@ -138,6 +138,17 @@ def verify_ime(args, out, report):
         if name in ['Ctrl','Alt','Shift']:
             key(center,.928)  # release toggled modifier
     report['checks']['modifier_keys_tapped_without_crash'] = True
+    # Tab/Esc may navigate or dismiss the IME in the host editor. Restore the
+    # original text field before sending the language-switch gesture.
+    tree = dump(out,'after-modifiers')
+    plain = next(n for n in tree.iter('node') if n.get('content-desc') == 'plain-text-field')
+    tap(plain); time.sleep(1)
+    tree = dump(out,'before-language-switch')
+    keyboard = next((n for n in tree.iter('node') if n.get('resource-id','').endswith('/keyboard_view')
+                     or n.get('class','').endswith('.MainKeyboardView')), None)
+    assert keyboard is not None, 'Keyboard did not reopen after modifier checks'
+    x1,y1,x2,y2 = bounds(keyboard)
+    w,h = x2-x1,y2-y1
     key(.475,.928)  # language switch
     time.sleep(1)
     screenshot(out,'arabic-layout')
@@ -149,8 +160,10 @@ def verify_ime(args, out, report):
     report['checks']['language_switch_and_arabic_typing'] = True
     # Hold Arabic alef; actual popup rendering is also captured for inspection.
     px,py = str(int(x1+w*.5)),str(int(y1+h*.535))
-    adb('shell', 'input', 'swipe', px, py, px, py, '700')
+    hold = subprocess.Popen(['adb','shell','input','swipe',px,py,px,py,'1800'])
+    time.sleep(.9)
     screenshot(out,'arabic-long-press')
+    assert hold.wait(timeout=10) == 0
     dump(out,'arabic-long-press')
     adb('shell', 'input', 'keyevent', '4')
     report['checks']['arabic_long_press_gesture_without_crash'] = True
@@ -179,6 +192,9 @@ def verify_ime(args, out, report):
     tree = dump(out,'hidden-keyboard')
     plain = next(n for n in tree.iter('node') if n.get('content-desc') == 'plain-text-field')
     tap(plain); time.sleep(1)
+    tree = dump(out,'reopened-keyboard')
+    assert any(n.get('resource-id','').endswith('/keyboard_view') or n.get('class','').endswith('.MainKeyboardView')
+               for n in tree.iter('node')), 'IME view absent after reopening'
     report['checks']['hide_and_reopen_without_crash'] = True
     adb('shell','settings','put','system','accelerometer_rotation','0')
     adb('shell','settings','put','system','user_rotation','1'); time.sleep(2)

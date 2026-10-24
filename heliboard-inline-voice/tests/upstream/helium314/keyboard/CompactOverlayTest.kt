@@ -19,6 +19,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.Locale
 import kotlin.test.assertEquals
@@ -27,7 +28,14 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31], shadows = [ShadowInputMethodManager2::class, ShadowProximityInfo::class])
 class CompactOverlayTest {
-    private val ime = Robolectric.setupService(LatinIME::class.java)
+    private val ime: LatinIME
+    init {
+        val app = RuntimeEnvironment.getApplication()
+        // A real install grants this generated signature permission. Robolectric
+        // does not grant it automatically for ContextCompat on API 31.
+        shadowOf(app).grantPermissions(app.packageName + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
+        ime = Robolectric.setupService(LatinIME::class.java)
+    }
 
     @Test fun applicationAndServiceHaveReadableLabelResources() {
         val ctx = RuntimeEnvironment.getApplication()
