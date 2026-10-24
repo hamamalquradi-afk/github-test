@@ -34,7 +34,11 @@ jobs:
           SDKMGR="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           test -x "$SDKMGR"
           yes | "$SDKMGR" --licenses >/dev/null || true
-          "$SDKMGR" "platforms;android-37" "build-tools;37.0.0" "ndk;28.0.13004108"
+          "$SDKMGR" --channel=3 "platforms;android-37.0" "build-tools;37.0.0" "ndk;28.0.13004108"
+          # SDK publishes API 37 as android-37.0, while AGP requests android-37.
+          if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+            ln -s android-37.0 "$ANDROID_HOME/platforms/android-37"
+          fi
       - name: Build experimental debug APK
         working-directory: heliboard-source
         run: |
