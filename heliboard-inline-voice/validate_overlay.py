@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Fail CI early when compact debug resources/layouts silently regress."""
+import json
+import re
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+if len(sys.argv) != 2:
+    raise SystemExit("Usage: validate_overlay.py <patched-source>")
+root = Path(sys.argv[1])
+overlay = Path(__file__).resolve().parent
+app = root / "app"
+
+for name, authority in (
+    ("clip_provider.xml", "helium314.keyboard.compactdebug.clipprovider"),
+    ("gesture_data.xml", "helium314.keyboard.compactdebug.provider"),
+):
+    value = ET.parse(app / "src/debug/res/values" / name).getroot()
+    entries = [node.text for node in value.findall("string")
+               if node.get("name") == ("clipboard_provider_authority" if name.startswith("clip") else "gesture_data_provider_authority")]
+    assert entries == [authority], (name, entries)
+    assert ".debug." not in authority
+
+gradle = (app / "build.gradle.kts").read_text()
+assert gradle.count('applicationIdSuffix = ".compactdebug"') == 1
+
+manifest = ET.parse(app / "src/main/AndroidManifest.xml").getroot()
+android = "{http://schemas.android.com/apk/res/android}"
+assert any(node.get(android + "name") == "android.permission.RECORD_AUDIO"
+           for node in manifest.findall("uses-permission"))
+assert any(node.get(android + "name") == "helium314.keyboard.latin.VoicePermissionActivity"
+           for node in manifest.iter("activity"))
+assert len([node for node in manifest.iter("service")
+            if node.get(android + "name") == "LatinIME"]) == 1
+
+layouts = {}
+for name, path in (
+    ("arabic", app / "src/main/assets/layouts/main/arabic.txt"),
+    ("qwerty", app / "src/main/assets/layouts/main/qwerty.txt"),
+    ("functional", app / "src/main/assets/layouts/functional/functional_keys.json"),
+):
+    layouts[name] = json.loads(path.read_text(encoding="utf-8"))
+assert [len(x) for x in layouts["qwerty"]] == [16, 10, 9, 7]
+assert [len(x) for x in layouts["arabic"]] == [16, 11, 11, 10]
+for language in ("arabic", "qwerty"):
+    symbols = [key["label"] for key in layouts[language][0]]
+    assert symbols == list('()[]{}<>/=;" .-*\\'.replace(" ", "")), symbols
+functional = layouts["functional"]
+labels = [key.get("label") for row in functional for key in row]
+for required in ("shift", "delete", "symbol_alpha", "Ctrl", "Alt", "Tab", "language_switch", "space", "action"):
+    assert required in labels, required
+assert not any(label in labels for label in ("arrow_left", "arrow_right"))
+
+latin = (app / "src/main/java/helium314/keyboard/latin/LatinIME.java").read_text()
+assert "mInlineVoiceInput.toggle(" in latin
+assert "mRichImm.switchToShortcutIme(this)" not in latin
+print("PASS: side-by-side provider IDs, launcher/IME/permission, bilingual layouts, symbol row and inline voice")
