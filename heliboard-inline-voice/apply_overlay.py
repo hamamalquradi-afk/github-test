@@ -78,6 +78,28 @@ for name in ("VoiceInputController.java", "VoicePermissionActivity.java"):
     shutil.copy2(overlay / name, src / name)
 
 
+# The upstream broadcast receiver kills its entire process whenever the IME is
+# not the *currently selected* keyboard.  A BOOT_COMPLETED broadcast may arrive
+# while the Compact welcome screen is open, terminating that foreground Activity.
+# Compact is intended to be tested side-by-side BEFORE selecting it as the IME.
+# Never kill an entire foreground process from a broadcast; Android owns normal
+# idle process reclamation. This change is scoped to the experimental overlay.
+receiver = src / "SystemBroadcastReceiver.java"
+receiver_source = receiver.read_text(encoding="utf-8")
+receiver_source = replace_once(
+    receiver_source,
+    "        if (!isCurrentImeOfCurrentUser) {\n"
+    "            final int myPid = Process.myPid();\n"
+    '            Log.i(TAG, "Killing my process: pid=" + myPid);\n'
+    "            Process.killProcess(myPid);\n"
+    "        }",
+    "        // Do not kill the process: this receiver can run while the setup\n"
+    "        // Activity is foreground and before Compact has been selected as IME.\n"
+    "        // The OS will reclaim the process when genuinely idle.",
+    "broadcast receiver foreground process kill"
+)
+receiver.write_text(receiver_source, encoding="utf-8")
+
 # Screenshot-matched 16-symbol row, bilingual layouts, and compact bottom controls.
 # Imported user layouts remain untouched: these only replace packaged built-ins.
 assets = root / "app/src/main/assets/layouts"
