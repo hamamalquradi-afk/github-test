@@ -1,5 +1,5 @@
 /*
- * HeliBoard inline speech input proof-of-concept.
+ * HeliBoard inline speech input (manual toggle, auto-restarting recognition).
  * SPDX-License-Identifier: GPL-3.0-only
  */
 package helium314.keyboard.latin;
@@ -9,42 +9,64 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ImageButton;
-import helium314.keyboard.latin.utils.ToolbarKey;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.text.InputType;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.widget.ImageButton;
 import android.widget.Toast;
+
+import androidx.annotation.Nullable;
+
+import helium314.keyboard.latin.utils.ToolbarKey;
 
 import java.util.ArrayList;
 import java.util.Locale;
 
-import androidx.annotation.Nullable;
-
 /**
- * Uses Android's installed speech recognition service INSIDE the existing IME.
- * No voice IME is selected. Audio processing policy belongs to the installed engine.
- * Only final recognition results are inserted to avoid duplicate partial transcripts.
+ * SpeechRecognizer is single-utterance on many Android recognition services.
+ * Keep a user-controlled dictation MODE active across utterances by starting
+ * another recognition session after final results or benign silence errors.
+ * Display interim hypotheses as composing text and replace (not append) them
+ * with the final transcript, so onPartialResults cannot duplicate words.
+ *
+ * A platform recognition engine can still impose pauses, rate limits, and
+ * silence timeouts. This is not a guarantee of uninterrupted audio capture.
  */
 final class VoiceInputController {
+    private static final long NEXT_UTTERANCE_DELAY_MS = 450L;
+    private static final long SILENCE_RETRY_DELAY_MS = 800L;
+    private static final int MAX_CONSECUTIVE_ENGINE_ERRORS = 3;
+
     private final LatinIME ime;
-    private SpeechRecognizer recognizer;
-    private boolean listening;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    @Nullable private SpeechRecognizer recognizer;
+    @Nullable private InputConnection targetConnection;
+    @Nullable private Locale selectedLocale;
+    @Nullable private Runnable pendingRestart;
+
+    private boolean enabled;
+    private boolean hasPreview;
+    private String previewText = "";
     private int generation;
+    private int iconGeneration;
+    private int consecutiveEngineErrors;
 
     VoiceInputController(LatinIME ime) {
         this.ime = ime;
     }
 
     void toggle(@Nullable Locale locale) {
-        if (listening) {
+        if (enabled) {
             stop();
             message("الميكروفون متوقف");
         } else {
@@ -54,8 +76,8 @@ final class VoiceInputController {
 
     private void start(@Nullable Locale locale) {
         final EditorInfo editor = ime.getCurrentInputEditorInfo();
-        final InputConnection initialConnection = ime.getCurrentInputConnection();
-        if (editor == null || initialConnection == null) {
+        final InputConnection connection = ime.getCurrentInputConnection();
+        if (editor == null || connection == null) {
             message("لا يوجد حقل نصي نشط");
             return;
         }
@@ -77,76 +99,187 @@ final class VoiceInputController {
             return;
         }
 
-        stop();
+        enabled = true;
+        selectedLocale = locale;
+        targetConnection = connection;
+        consecutiveEngineErrors = 0;
+        updateMicIcon(true);
+        message("🎤 الإملاء الصوتي مفعّل — اضغط الميكروفون لإيقافه");
+        beginRecognition();
+    }
+
+    /** Called on the main thread, once for each service-managed utterance. */
+    private void beginRecognition() {
+        if (!enabled) return;
+        if (!isTargetActive()) {
+            stop();
+            return;
+        }
+
+        // Android requires each startListening to follow completion of the
+        // previous session. Dispose the old instance before making a new one.
+        disposeRecognizer();
         final int session = ++generation;
         try {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(ime);
-            listening = true;
-            updateMicIcon(true);
-            recognizer.setRecognitionListener(new RecognitionListener() {
+            final SpeechRecognizer next = SpeechRecognizer.createSpeechRecognizer(ime);
+            recognizer = next;
+            next.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) {
-                    if (session == generation) {
-                        updateMicIcon(true);
-                        message("🎤 جارٍ الاستماع — اضغط الميكروفون للإيقاف");
-                    }
+                    if (isCurrentSession(session)) updateMicIcon(true);
                 }
-                @Override public void onBeginningOfSpeech() { }
+                @Override public void onBeginningOfSpeech() {
+                    if (isCurrentSession(session)) consecutiveEngineErrors = 0;
+                }
                 @Override public void onRmsChanged(float rmsdB) { }
                 @Override public void onBufferReceived(byte[] buffer) { }
-                @Override public void onEndOfSpeech() { }
-                @Override public void onPartialResults(Bundle partialResults) {
-                    // Do not commit partial text: some engines repeat it in onResults.
+                @Override public void onEndOfSpeech() {
+                    // Silence ends an utterance, NOT the user-controlled mode.
+                    // Wait for onResults/onError before starting a new session.
+                }
+                @Override public void onPartialResults(Bundle results) {
+                    if (isCurrentSession(session)) showInterimResult(results);
                 }
                 @Override public void onEvent(int eventType, Bundle params) { }
                 @Override public void onError(int error) {
-                    if (session != generation) return;
-                    stop();
+                    if (!isCurrentSession(session)) return;
+                    finishPreview("");
+                    endSession();
+                    if (!enabled) return;
                     if (error == SpeechRecognizer.ERROR_NO_MATCH
                             || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                        message("لم يتم التعرف على كلام واضح");
+                        consecutiveEngineErrors = 0;
+                        scheduleRestart(SILENCE_RETRY_DELAY_MS);
+                    } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                            || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
+                            || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                            || error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS) {
+                        stop();
+                        message("توقّف الإملاء: خدمة الصوت رفضت الطلب (رمز " + error + ")");
+                    } else if (++consecutiveEngineErrors >= MAX_CONSECUTIVE_ENGINE_ERRORS) {
+                        stop();
+                        message("توقّف الإملاء بعد تكرار خطأ في خدمة الصوت (رمز " + error + ")");
                     } else {
-                        message("تعذر الإملاء الصوتي (رمز " + error + ")");
+                        scheduleRestart(SILENCE_RETRY_DELAY_MS * consecutiveEngineErrors);
                     }
                 }
                 @Override public void onResults(Bundle results) {
-                    if (session != generation) return;
-                    ArrayList<String> options =
-                            results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    final String text = (options == null || options.isEmpty())
-                            ? "" : options.get(0).trim();
-                    // An input field might have changed during recognition.
-                    if (!text.isEmpty() && ime.getCurrentInputConnection() == initialConnection
-                            && !isSensitiveField(ime.getCurrentInputEditorInfo())) {
-                        initialConnection.commitText(text, 1);
-                    }
-                    stop();
+                    if (!isCurrentSession(session)) return;
+                    finishPreview(bestResult(results));
+                    consecutiveEngineErrors = 0;
+                    endSession();
+                    scheduleRestart(NEXT_UTTERANCE_DELAY_MS);
                 }
             });
-            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-            if (locale != null) {
-                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag());
+            if (selectedLocale != null) {
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,
+                        selectedLocale.toLanguageTag());
             }
-            recognizer.startListening(intent);
-        } catch (RuntimeException e) {
-            stop();
-            message("تعذر تشغيل محرك التعرف الصوتي");
+            next.startListening(intent);
+        } catch (RuntimeException exception) {
+            endSession();
+            if (++consecutiveEngineErrors >= MAX_CONSECUTIVE_ENGINE_ERRORS) {
+                stop();
+                message("تعذر تشغيل محرك التعرف الصوتي");
+            } else {
+                scheduleRestart(SILENCE_RETRY_DELAY_MS * consecutiveEngineErrors);
+            }
         }
     }
 
-    void stop() {
-        generation++;
-        listening = false;
-        updateMicIcon(false);
-        if (recognizer != null) {
-            final SpeechRecognizer old = recognizer;
-            recognizer = null;
-            try { old.cancel(); } catch (RuntimeException ignored) { }
-            old.destroy();
+    private boolean isCurrentSession(int session) {
+        return enabled && session == generation;
+    }
+
+    private boolean isTargetActive() {
+        return targetConnection != null
+                && ime.getCurrentInputConnection() == targetConnection
+                && !isSensitiveField(ime.getCurrentInputEditorInfo());
+    }
+
+    private static String bestResult(@Nullable Bundle results) {
+        if (results == null) return "";
+        final ArrayList<String> choices =
+                results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+        return choices == null || choices.isEmpty() || choices.get(0) == null
+                ? "" : choices.get(0).trim();
+    }
+
+    /** Update ONE composing region; don't append each repeated partial result. */
+    private void showInterimResult(@Nullable Bundle results) {
+        if (!isTargetActive()) {
+            stop();
+            return;
         }
+        final String partial = bestResult(results);
+        if (partial.isEmpty() || partial.equals(previewText)) return;
+        if (!hasPreview) {
+            // Preserve any already-composing text from normal keyboard typing.
+            targetConnection.finishComposingText();
+        }
+        if (targetConnection.setComposingText(partial, 1)) {
+            previewText = partial;
+            hasPreview = true;
+        }
+    }
+
+    /**
+     * Android commitText replaces the active composing region, if present.
+     * This replaces the preview with the final recognition, once per utterance.
+     * On errors/manual stop, retain the last interim transcript if available.
+     */
+    private void finishPreview(@Nullable String finalText) {
+        final String text = finalText != null && !finalText.trim().isEmpty()
+                ? finalText.trim() : previewText;
+        if (isTargetActive() && !text.isEmpty()) {
+            targetConnection.commitText(text + " ", 1);
+        }
+        hasPreview = false;
+        previewText = "";
+    }
+
+    private void endSession() {
+        ++generation; // ignore any late callbacks from the ending session
+        disposeRecognizer();
+    }
+
+    private void disposeRecognizer() {
+        final SpeechRecognizer old = recognizer;
+        recognizer = null;
+        if (old == null) return;
+        try { old.cancel(); } catch (RuntimeException ignored) { }
+        try { old.destroy(); } catch (RuntimeException ignored) { }
+    }
+
+    private void scheduleRestart(long delayMs) {
+        if (!enabled) return;
+        if (pendingRestart != null) mainHandler.removeCallbacks(pendingRestart);
+        pendingRestart = () -> {
+            pendingRestart = null;
+            if (enabled) beginRecognition();
+        };
+        mainHandler.postDelayed(pendingRestart, delayMs);
+    }
+
+    /** Explicit user off, input view hidden, or service destroyed. */
+    void stop() {
+        enabled = false;
+        ++generation;
+        if (pendingRestart != null) {
+            mainHandler.removeCallbacks(pendingRestart);
+            pendingRestart = null;
+        }
+        // Do not lose the last speech hypothesis when the user presses Stop.
+        finishPreview("");
+        disposeRecognizer();
+        targetConnection = null;
+        selectedLocale = null;
+        consecutiveEngineErrors = 0;
+        updateMicIcon(false);
     }
 
     void destroy() {
@@ -155,7 +288,7 @@ final class VoiceInputController {
 
     private static boolean isSensitiveField(@Nullable EditorInfo editor) {
         if (editor == null) return true;
-        int type = editor.inputType;
+        final int type = editor.inputType;
         final int klass = type & InputType.TYPE_MASK_CLASS;
         final int variation = type & InputType.TYPE_MASK_VARIATION;
         if (klass == InputType.TYPE_CLASS_TEXT) {
@@ -169,23 +302,22 @@ final class VoiceInputController {
                 && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
     }
 
-
     /**
-     * Only changes the current toolbar microphone's visual state.
-     * The chosen Android speech-recognition service is NOT modified.
+     * Green means dictation MODE is enabled; the Android engine may temporarily
+     * release the physical microphone while a recognition session restarts.
      */
     private void updateMicIcon(final boolean active) {
+        final int update = ++iconGeneration;
         if (ime.getWindow() == null || ime.getWindow().getWindow() == null) return;
         final View root = ime.getWindow().getWindow().getDecorView();
         if (root == null) return;
         root.post(() -> {
-            // Don't show a stale green mic if recognition already stopped.
-            if (active && !listening) return;
-            ImageButton mic = findVoiceButton(root);
-            if (mic == null) return; // toolbar hidden: native speech toast still reports status
+            if (update != iconGeneration || (active && !enabled)) return;
+            final ImageButton mic = findVoiceButton(root);
+            if (mic == null) return;
             if (active) {
                 mic.setColorFilter(Color.rgb(28, 181, 89), PorterDuff.Mode.SRC_IN);
-                mic.setContentDescription("جارٍ الاستماع — اضغط لإيقاف الميكروفون");
+                mic.setContentDescription("الإملاء الصوتي مفعّل — اضغط للإيقاف");
             } else {
                 mic.clearColorFilter();
                 mic.setContentDescription("الميكروفون متوقف — اضغط للتحدث");
@@ -199,17 +331,16 @@ final class VoiceInputController {
             return (ImageButton) root;
         }
         if (root instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) root;
+            final ViewGroup group = (ViewGroup) root;
             for (int i = 0; i < group.getChildCount(); i++) {
-                ImageButton found = findVoiceButton(group.getChildAt(i));
+                final ImageButton found = findVoiceButton(group.getChildAt(i));
                 if (found != null) return found;
             }
         }
         return null;
     }
 
-    private void message(String message) {
-        Toast.makeText(ime, message, Toast.LENGTH_SHORT).show();
+    private void message(String text) {
+        Toast.makeText(ime, text, Toast.LENGTH_SHORT).show();
     }
 }
-
