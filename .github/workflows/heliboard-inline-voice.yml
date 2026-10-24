@@ -47,6 +47,11 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
+      - name: Use Java 21 for Robolectric SDK 36 unit tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Run available debug JVM unit tests
         id: unit_tests
         continue-on-error: true
@@ -88,6 +93,11 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           script: bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk /tmp/heliboard-previous/HeliBoard_4.3-beta1-debug.apk
+      - name: Mark workflow failed when JVM tests fail
+        if: always() && steps.unit_tests.outcome == 'failure'
+        run: |
+          echo "::error::JVM unit tests failed. Inspect HeliBoard-unit-test-reports; build and emulator results are separate."
+          exit 1
       - name: Preserve build failure reports
         if: failure()
         uses: actions/upload-artifact@v4
