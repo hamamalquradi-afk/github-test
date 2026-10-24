@@ -1,0 +1,64 @@
+[
+  [
+    {
+      "label": "shift",
+      "width": 0.125
+    },
+    {
+      "type": "placeholder"
+    },
+    {
+      "label": "delete",
+      "width": 0.125
+    }
+  ],
+  [
+    {
+      "label": "symbol_alpha",
+      "width": 0.1
+    },
+    {
+      "label": "Ctrl",
+      "code": -1,
+      "type": "function",
+      "width": 0.09
+    },
+    {
+      "label": "Alt",
+      "code": -3,
+      "type": "function",
+      "width": 0.09
+    },
+    {
+      "label": "Tab",
+      "code": -10014,
+      "type": "function",
+      "width": 0.09,
+      "popup": {
+        "relevant": [
+          {
+            "label": "Esc",
+            "code": -10017
+          }
+        ]
+      }
+    },
+    {
+      "label": "language_switch",
+      "width": 0.075
+    },
+    {
+      "label": "space"
+    },
+    {
+      "label": "period",
+      "width": 0.07,
+      "labelFlags": 1073741824
+    },
+    {
+      "label": "action",
+      "width": 0.12,
+      "labelFlags": 1073741824
+    }
+  ]
+]
