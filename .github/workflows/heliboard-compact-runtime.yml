@@ -74,7 +74,9 @@ jobs:
         working-directory: heliboard-source
         run: |
           chmod +x gradlew
-          ./gradlew testRunTestsUnitTest assembleDebug --stacktrace
+          # AGP 9 only enables debug unit tests by default. Restore the project's
+          # existing runTests variant explicitly, without changing AGP/Kotlin.
+          ./gradlew -Pandroid.onlyEnableUnitTestForTheTestedBuildType=false testRunTestsUnitTest assembleDebug --stacktrace
       - name: Preserve test reports and source evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -114,9 +116,31 @@ jobs:
           name: HeliBoard-compact-fixed-runtime-evidence
           path: runtime-fixed/
           if-no-files-found: warn
+      - name: Name verified APK and record exact source and binary provenance
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, shutil
+          from pathlib import Path
+          report = json.loads(Path('runtime-fixed/report.json').read_text())
+          assert report['status'] == 'passed'
+          apks = list(Path('heliboard-source/app/build/outputs/apk/debug').glob('*.apk'))
+          assert len(apks) == 1
+          sha = os.environ['GITHUB_SHA']
+          out = Path('verified-apk'); out.mkdir()
+          target = out / ('HeliBoard_Compact_Fix_' + sha[:8] + '.apk')
+          shutil.copy2(apks[0], target)
+          digest = hashlib.sha256(target.read_bytes()).hexdigest()
+          assert digest == report['apk_sha256']
+          (out / 'build-info.json').write_text(json.dumps({
+              'repair_commit': sha,
+              'upstream_commit': 'e97acdbe7ad16ef06d89d71d35ed1096e6d69f4c',
+              'application_id': report['package'], 'apk_sha256': digest,
+              'runtime': report, 'run_id': os.environ['GITHUB_RUN_ID']
+          }, indent=2))
+          PY
       - name: Publish only the new runtime-tested APK
         uses: actions/upload-artifact@v4
         with:
           name: HeliBoard-Compact-Fix-debug
-          path: heliboard-source/app/build/outputs/apk/debug/*.apk
+          path: verified-apk/
           if-no-files-found: error
