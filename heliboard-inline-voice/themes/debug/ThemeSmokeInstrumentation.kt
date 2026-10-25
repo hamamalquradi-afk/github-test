@@ -47,10 +47,33 @@ class ThemeSmokeInstrumentation : Instrumentation() {
             }
             val activity = startActivitySync(Intent(targetContext, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             waitForIdleSync()
+            // After a force-stop, Android can restore Settings with its welcome
+            // wizard above the NavHost even though the IME has since been selected.
+            // The persistence failure screenshot confirmed exactly this state.
+            // Follow the REAL wizard's Configure action only after verifying the
+            // system-selected IME, rather than clearing preferences or hiding tests.
+            if (mode != "full") {
+                val configure = activity.getString(helium314.keyboard.latin.R.string.setup_step3_action)
+                if (findText(configure, 1200).isNotEmpty()) {
+                    val selectedIme = android.provider.Settings.Secure.getString(
+                        targetContext.contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)
+                    val expectedIme = "${targetContext.packageName}/${LatinIME::class.java.name}"
+                    check(selectedIme == expectedIme) {
+                        "Welcome wizard requires setup; selectedIme=$selectedIme, expected=$expectedIme"
+                    }
+                    screenshot("welcome-before-gallery-$mode")
+                    clickText(configure)
+                    pass("Closed visible setup wizard via Configure after confirming selected IME")
+                }
+            }
             main { SettingsDestination.navigateTo(SettingsDestination.Themes) }
             waitForIdleSync(); SystemClock.sleep(1000)
             screenshot("gallery-$mode")
-            check(findText(activity.getString(helium314.keyboard.latin.R.string.gallery_title)).isNotEmpty()) { "Gallery title missing from accessibility tree" }
+            check(findText(activity.getString(helium314.keyboard.latin.R.string.gallery_title)).isNotEmpty()) {
+                "Gallery title missing from accessibility tree; mode=$mode, selectedIme=" +
+                    android.provider.Settings.Secure.getString(targetContext.contentResolver,
+                        android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)
+            }
             if (mode == "full") {
                 verifyCatalog()
                 verifyCustomImages()
@@ -353,8 +376,8 @@ class ThemeSmokeInstrumentation : Instrumentation() {
         SystemClock.sleep(300)
     }
 
-    private fun findText(text: String): List<AccessibilityNodeInfo> {
-        val deadline = SystemClock.uptimeMillis() + 8000
+    private fun findText(text: String, timeoutMs: Long = 8000): List<AccessibilityNodeInfo> {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
         do {
             val found = mutableListOf<AccessibilityNodeInfo>()
             fun visit(node: AccessibilityNodeInfo?) {
