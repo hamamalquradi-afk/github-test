@@ -159,6 +159,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
           emulator-boot-timeout: 600
           disable-animations: true
           script: bash heliboard-inline-voice/branding/verify-emulator.sh

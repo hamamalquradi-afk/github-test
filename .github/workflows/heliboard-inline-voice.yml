@@ -173,6 +173,9 @@ jobs:
           name: HeliBoard-Compact-Themes-side-by-side
           path: heliboard-source/app/build/outputs/apk/themes/*.apk*
           if-no-files-found: error
+      - name: Release completed build daemons before starting Android
+        working-directory: heliboard-source
+        run: ./gradlew --stop
       - name: Enable KVM for Android emulator
         run: |
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
@@ -183,6 +186,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
           emulator-boot-timeout: 600
           disable-animations: true
           script: |

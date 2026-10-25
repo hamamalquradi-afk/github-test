@@ -11,6 +11,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import helium314.keyboard.keyboard.*
@@ -254,8 +255,22 @@ class ThemeSmokeInstrumentation : Instrumentation() {
             floatArrayOf(location[0] + key.x + key.width / 2f, location[1] + key.y + key.height / 2f)
         }
         val now = SystemClock.uptimeMillis()
-        sendPointerSync(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, point[0], point[1], 0))
-        sendPointerSync(MotionEvent.obtain(now, now + 65, MotionEvent.ACTION_UP, point[0], point[1], 0))
+        // IME windows are managed separately from the editor activity. Android 15's
+        // sendPointerSync targets the instrumented UID and may reject that window.
+        // UiAutomation is the supported cross-window injector; keep every actual
+        // editor-text assertion above, so a misplaced/rejected tap still fails.
+        fun inject(action: Int) {
+            val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action, point[0], point[1], 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try {
+                check(uiAutomation.injectInputEvent(event, true)) { "Touch injection rejected at ${point.toList()}" }
+            } finally {
+                event.recycle()
+            }
+        }
+        inject(MotionEvent.ACTION_DOWN)
+        SystemClock.sleep(65)
+        inject(MotionEvent.ACTION_UP)
     }
 
     private fun clickText(text: String) {
