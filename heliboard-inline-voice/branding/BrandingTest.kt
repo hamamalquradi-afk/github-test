@@ -40,7 +40,7 @@ class BrandingTest {
         assertTrue(app.getDrawable(R.mipmap.ic_launcher_round) is AdaptiveIconDrawable)
         assertNotNull(app.getDrawable(R.drawable.keynova_monochrome))
         assertNotNull(app.getDrawable(R.drawable.keynova_master))
-        assertEquals("HeliBoard", app.getString(R.string.english_ime_name))
+        assertEquals("HeliBoard debug", app.getString(R.string.english_ime_name))
         assertEquals(R.string.compact_ime_name, app.applicationInfo.labelRes)
     }
 }

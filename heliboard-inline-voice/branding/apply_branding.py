@@ -28,6 +28,16 @@ for variant in ('debug', 'themes'):
             'setup_welcome_additional_description': slogan,
             'ime_settings': settings,
         }
+        if locale == 'values':
+            # Upstream debug already declares ime_settings in this source set.
+            # Update that declaration rather than introducing a duplicate resource.
+            existing = folder / 'strings.xml'
+            source = existing.read_text(encoding='utf-8')
+            old = '<string name="ime_settings" translatable="false">HeliBoard debug Settings</string>'
+            assert source.count(old) == 1, 'Pinned debug settings resource drift'
+            existing.write_text(source.replace(old,
+                f'<string name="ime_settings">{escape(settings)}</string>'), encoding='utf-8')
+            del strings['ime_settings']
         (folder / 'keynova_branding.xml').write_text(
             '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n' + ''.join(
                 f'    <string name="{key}">{escape(value)}</string>\n'

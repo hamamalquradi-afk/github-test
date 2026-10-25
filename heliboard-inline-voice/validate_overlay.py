@@ -125,3 +125,14 @@ for variant in ('debug', 'themes'):
         assert legacy.get(android + 'src') == '@drawable/keynova_master'
     assert ET.parse(res / 'drawable/keynova_monochrome.xml').getroot().tag == 'vector'
 print('PASS: approved icon master, legacy/adaptive/monochrome resources in both variants')
+# Android merges all XML files within a source-set qualifier together; overriding
+# a main resource is valid, declaring the same string twice within debug is not.
+for variant in ('debug', 'themes'):
+    for folder in (app / f'src/{variant}/res').glob('values*'):
+        seen = {}
+        for resource_file in folder.glob('*.xml'):
+            for node in ET.parse(resource_file).getroot().findall('string'):
+                name = node.get('name')
+                assert name not in seen, f'Duplicate {variant}/{folder.name}/{name}: {seen.get(name)} and {resource_file}'
+                seen[name] = resource_file
+print('PASS: no duplicate string resources within either variant/locale')
