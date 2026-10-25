@@ -153,16 +153,37 @@ class ThemeSmokeInstrumentation : Instrumentation() {
         pass("Image import, bounded decoding, save/reapply, missing/corrupt fallback and default restoration passed")
     }
 
+    private fun awaitEditorKeyboard(host: ThemeSmokeActivity) {
+        val deadline = SystemClock.uptimeMillis() + 10000
+        do {
+            main {
+                if (host.editor.hasWindowFocus()) {
+                    host.editor.requestFocus()
+                    (host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                        .showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
+            waitForIdleSync()
+            if (main { host.editor.hasWindowFocus() &&
+                    runCatching { KeyboardSwitcher.getInstance().mainKeyboardView.isShown }.getOrDefault(false) }) return
+            SystemClock.sleep(150)
+        } while (SystemClock.uptimeMillis() < deadline)
+        error("Keyboard readiness timed out: editorWindowFocus=" + main { host.editor.hasWindowFocus() } +
+            ", selectedIme=" + android.provider.Settings.Secure.getString(targetContext.contentResolver, "default_input_method"))
+    }
+
     private fun verifyLiveKeyboard() {
         var host = startActivitySync(Intent(targetContext, ThemeSmokeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ThemeSmokeActivity
-        waitForIdleSync(); SystemClock.sleep(1500)
+        waitForIdleSync()
+        awaitEditorKeyboard(host)
         for (wide in listOf(false, true)) {
             val monitor = addMonitor(ThemeSmokeActivity::class.java.name, null, false)
             main { host.requestedOrientation = if (wide) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
-            val recreated = monitor.waitForActivityWithTimeout(2500)
+            val recreated = monitor.waitForActivityWithTimeout(5000)
             removeMonitor(monitor)
             if (recreated != null) host = recreated as ThemeSmokeActivity
-            waitForIdleSync(); SystemClock.sleep(1000)
+            waitForIdleSync()
+            awaitEditorKeyboard(host)
             for (language in listOf("en", "ar")) {
                 main {
                     host.editor.setText("")
@@ -179,6 +200,7 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                     ime.switchToSubtype(alternate)
                     ime.switchToSubtype(subtype)
                 }
+                awaitEditorKeyboard(host)
                 val code = if (language == "en") 'q'.code else 'ض'.code
                 // Subtype changes propagate to the displayed KeyboardView asynchronously.
                 // Do not tap a stale layout: this would create a false persistence failure.
@@ -224,7 +246,7 @@ class ThemeSmokeInstrumentation : Instrumentation() {
     }
 
     private fun shortcuts(host: ThemeSmokeActivity): Map<String, Boolean> {
-        fun tap(code: Int) { tapKey { it.code == code || code in 'a'.code..'z'.code && it.code == code - 32 }; waitForIdleSync(); SystemClock.sleep(150) }
+        fun tap(code: Int) { awaitEditorKeyboard(host); tapKey { it.code == code || code in 'a'.code..'z'.code && it.code == code - 32 }; waitForIdleSync(); SystemClock.sleep(150) }
         main { host.editor.setText("abc"); host.editor.setSelection(3); host.editor.keyEvents.clear() }
         waitForIdleSync(); SystemClock.sleep(200)
         tap(KeyCode.CTRL); tap('a'.code)

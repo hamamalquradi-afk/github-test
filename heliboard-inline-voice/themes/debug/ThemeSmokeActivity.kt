@@ -21,7 +21,18 @@ class ThemeSmokeActivity : Activity() {
         }
         setContentView(editor)
         editor.requestFocus()
-        editor.postDelayed({ (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }, 500)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && ::editor.isInitialized) {
+            editor.requestFocus()
+            editor.post {
+                if (editor.hasWindowFocus())
+                    (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                        .showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
     }
 }
 
