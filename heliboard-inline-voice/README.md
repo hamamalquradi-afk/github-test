@@ -31,7 +31,7 @@ Artifact/APK filenames retain the upstream naming used by the build infrastructu
 3. Export/backup preferences and custom layouts before importing them into the test app. Imported custom layouts are not overwritten by the build overlay, but they are not automatically shared across different app IDs.
 4. Enable KEYNOVA SMART / كينوفا سمارت in Android settings, select it as the current keyboard, then test Arabic/English, punctuation, Ctrl/Alt/Shift, and microphone insertion in an ordinary text field.
 
-**Debug signing caveat:** The gallery workflow retains its debug signing key for subsequent builds. Earlier builds used temporary runner keys, and their private keys are not present in this repository. An older Compact installation may reject an update because its certificate differs. Keep the installed keyboard and its settings; a compatible update requires its original keystore. Do not uninstall the existing keyboard as a workaround. A production release channel still requires a securely stored persistent release key.
+**Debug signing caveat:** The gallery workflow attempts to cache its debug signing key, but observed CI runs reported cache-save failures; do not assume certificate continuity without comparing the built APKs. Earlier builds used temporary runner keys, and their private keys are not present in this repository. An older Compact installation may reject an update because its certificate differs. Keep the installed keyboard and its settings; a compatible update requires its original keystore. Do not uninstall the existing keyboard as a workaround. A production release channel still requires a securely stored persistent release key.
 
 ## Automated checks
 

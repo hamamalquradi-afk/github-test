@@ -7,11 +7,11 @@ on:
       source_run_id:
         description: Run that built the unchanged application source
         required: true
-        default: '40232445718'
+        default: '40236691889'
       source_commit:
         description: Exact application source commit for that run
         required: true
-        default: fd2af82be0c04b7f01cd5ca3c3d7634409ca4c24
+        default: 9f0f98a20829737dfa077cff59da53120fe91d22
 
 permissions:
   contents: read
@@ -19,12 +19,12 @@ permissions:
 
 jobs:
   verify-built:
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[verify-built]') }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[verify-built]')) && !contains(github.event.head_commit.message, '[diagnostics]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      SOURCE_RUN: ${{ inputs.source_run_id || '40232445718' }}
-      SOURCE_COMMIT: ${{ inputs.source_commit || 'fd2af82be0c04b7f01cd5ca3c3d7634409ca4c24' }}
+      SOURCE_RUN: ${{ inputs.source_run_id || '40236691889' }}
+      SOURCE_COMMIT: ${{ inputs.source_commit || '9f0f98a20829737dfa077cff59da53120fe91d22' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -131,22 +131,36 @@ jobs:
           else
             echo '::warning title=Signing compatibility::Previous Compact APK unavailable; historical certificate compatibility remains unverified.'
           fi
-      - name: Diagnose the previous gallery obstruction screenshot
-        if: steps.provenance.outputs.source_conclusion != 'success'
+      - name: Inspect bounded non-secret signing-cache diagnostics
         continue-on-error: true
         shell: bash
         run: |
-          if ! command -v tesseract >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y tesseract-ocr >/dev/null
-          fi
-          gh run download 40234213906 --repo "${{ github.repository }}" --name HeliBoard-final-theme-gallery-verification --dir /tmp/keynova-previous-gallery
+          JOB_ID="$(gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN/jobs" --jq '.jobs[] | select(.name == "build-debug") | .id')"
+          test -n "$JOB_ID"
+          gh api "repos/${{ github.repository }}/actions/jobs/$JOB_ID/logs" > /tmp/keynova-source-job.log
           python3 - <<'PY'
-          import pathlib, subprocess
-          for image in pathlib.Path('/tmp/keynova-previous-gallery').rglob('failure-full.png'):
-              result = subprocess.run(['tesseract', str(image), 'stdout'], text=True, capture_output=True, check=True)
-              text = result.stdout.strip().replace('%', '%25').replace('\n', '%0A')
-              print('::notice title=Previous gallery screenshot text::' + text[:3500])
+          import pathlib, re
+          lines = pathlib.Path('/tmp/keynova-source-job.log').read_text(errors='replace').splitlines()
+          indices = [i for i, line in enumerate(lines) if 'Cache save failed' in line or 'Path Validation Error' in line]
+          emitted = set()
+          for i in indices:
+              for line in lines[max(0, i-5):i+4]:
+                  if line in emitted or not any(term in line.lower() for term in ['cache', 'path', 'keystore', 'error', 'failed']):
+                      continue
+                  if any(term in line.lower() for term in ['authorization', 'token', 'password', 'sig=']):
+                      continue
+                  line = re.sub(r'https?://[^\s]+', '[URL redacted]', line)
+                  emitted.add(line)
+                  if len(emitted) <= 10:
+                      print('::notice title=Signing-cache diagnostic::' + line.replace('%', '%25'))
+          if not indices:
+              print('::notice title=Signing-cache diagnostic::No cache save error found in source job logs.')
+          PY
+          gh api "repos/${{ github.repository }}/actions/caches?key=heliboard-compact-debug-signing-v1" --jq '.actions_caches[] | {key,ref,size_in_bytes}' > /tmp/keynova-signing-cache-metadata.json
+          python3 - <<'PY'
+          import pathlib
+          text = pathlib.Path('/tmp/keynova-signing-cache-metadata.json').read_text().strip()
+          print('::notice title=Signing-cache metadata::' + (text if text else 'No retained cache entry for this signing key').replace('%', '%25').replace('\n', '%0A'))
           PY
       - name: Enable KVM
         if: steps.provenance.outputs.source_conclusion != 'success'
@@ -175,3 +189,42 @@ jobs:
             heliboard-inline-voice/test-results/emulator-logcat.txt
             heliboard-inline-voice/test-results/launch-commands.txt
           if-no-files-found: error
+
+  signing-cache-diagnostics:
+    if: startsWith(github.event.head_commit.message, '[verify-built] [diagnostics]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: '40236691889'
+    steps:
+      - name: Inspect bounded non-secret signing-cache diagnostics
+        shell: bash
+        run: |
+          JOB_ID="$(gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN/jobs" --jq '.jobs[] | select(.name == "build-debug") | .id')"
+          test -n "$JOB_ID"
+          gh api "repos/${{ github.repository }}/actions/jobs/$JOB_ID/logs" > /tmp/keynova-source-job.log
+          python3 - <<'PY'
+          import pathlib, re
+          lines = pathlib.Path('/tmp/keynova-source-job.log').read_text(errors='replace').splitlines()
+          indices = [i for i, line in enumerate(lines) if 'Cache save failed' in line or 'Path Validation Error' in line]
+          emitted = set()
+          for i in indices:
+              for line in lines[max(0, i-5):i+4]:
+                  if line in emitted or not any(term in line.lower() for term in ['cache', 'path', 'keystore', 'error', 'failed']):
+                      continue
+                  if any(term in line.lower() for term in ['authorization', 'token', 'password', 'sig=']):
+                      continue
+                  line = re.sub(r'https?://[^\s]+', '[URL redacted]', line)
+                  emitted.add(line)
+                  if len(emitted) <= 10:
+                      print('::notice title=Signing-cache diagnostic::' + line.replace('%', '%25'))
+          if not indices:
+              print('::notice title=Signing-cache diagnostic::No cache save error found in source job logs.')
+          PY
+          gh api "repos/${{ github.repository }}/actions/caches?key=heliboard-compact-debug-signing-v1" --jq '.actions_caches[] | {key,ref,size_in_bytes}' > /tmp/keynova-signing-cache-metadata.json
+          python3 - <<'PY'
+          import pathlib
+          text = pathlib.Path('/tmp/keynova-signing-cache-metadata.json').read_text().strip()
+          print('::notice title=Signing-cache metadata::' + (text if text else 'No retained cache entry for this signing key').replace('%', '%25').replace('\n', '%0A'))
+          PY
