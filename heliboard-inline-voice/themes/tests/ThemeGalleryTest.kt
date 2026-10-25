@@ -63,6 +63,26 @@ class ThemeGalleryTest {
         file.delete()
     }
 
+    @Test fun previewTypographyIsIsolatedFromTheAppliedTheme() {
+        val themes = ThemeCatalog.load(context)
+        ThemeGalleryRepository.apply(context, themes.first { it.category == "light" })
+        val before = context.prefs().all.toMap()
+        val active = ThemeGalleryRepository.selected(context)
+        themes.forEach { theme ->
+            val model = ThemePreviewView.buildKeyboard(context, theme, "en")
+            val colors = ThemeGalleryRepository.colors(context, theme, true)
+            val previewContext = ThemePreviewContext(context, KeyboardTheme.getKeyboardThemeForStyle(theme.style, theme.borders).mStyleId, colors)
+            val view = helium314.keyboard.keyboard.KeyboardView(previewContext, null, helium314.keyboard.latin.R.attr.keyboardViewStyle, colors)
+            view.setKeyboard(model)
+            assertEquals(colors.get(ColorType.KEY_TEXT), view.keyVisualAttribute!!.mTextColor, theme.id)
+            assertEquals(colors.get(ColorType.KEY_HINT_TEXT), view.keyVisualAttribute!!.mHintLetterColor, theme.id)
+            model.mKeyVisualAttributes?.let { assertEquals(colors.get(ColorType.KEY_TEXT), it.mTextColor, theme.id) }
+            view.deallocateMemory()
+        }
+        assertEquals(before, context.prefs().all)
+        assertEquals(active, ThemeGalleryRepository.selected(context))
+    }
+
     @Test fun bundledLabelsMeetNormalTextContrast() {
         ThemeCatalog.load(context).forEach { spec ->
             val colors = ThemeGalleryRepository.colors(context, spec)

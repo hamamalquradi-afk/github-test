@@ -4,6 +4,8 @@
     <string name="gallery_subtitle">%1$d complete themes · Available offline</string>
     <string name="gallery_description">Browse, preview and apply complete keyboard appearances</string>
     <string name="gallery_all">All themes</string>
+    <string name="gallery_current">Current appearance: %1$s</string>
+    <string name="gallery_native">Appearance settings</string>
     <string name="gallery_my_themes">My appearances</string>
     <string name="gallery_category_dark">Dark</string>
     <string name="gallery_category_light">Light</string>

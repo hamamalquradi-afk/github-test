@@ -34,6 +34,9 @@ class ThemeSmokeInstrumentation : Instrumentation() {
     override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); mode = arguments?.getString("mode") ?: "full"; start() }
     override fun onStart() {
         try {
+            uiAutomation.serviceInfo = uiAutomation.serviceInfo.apply {
+                flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            }
             if (mode == "persist") {
                 main { check(ThemeGalleryRepository.selected(targetContext)?.id == "gold_royal_gold") { "Selection did not survive process restart" } }
                 pass("Selected appearance survived a force-stop and fresh process")
@@ -43,7 +46,7 @@ class ThemeSmokeInstrumentation : Instrumentation() {
             main { SettingsDestination.navigateTo(SettingsDestination.Themes) }
             waitForIdleSync(); SystemClock.sleep(1000)
             screenshot("gallery-$mode")
-            check(uiAutomation.rootInActiveWindow.findAccessibilityNodeInfosByText(activity.getString(helium314.keyboard.latin.R.string.gallery_title)).isNotEmpty()) { "Gallery was not displayed" }
+            check(findText(activity.getString(helium314.keyboard.latin.R.string.gallery_title)).isNotEmpty()) { "Gallery title missing from accessibility tree" }
             if (mode == "full") {
                 verifyCatalog()
                 verifyCustomImages()
@@ -169,6 +172,41 @@ class ThemeSmokeInstrumentation : Instrumentation() {
             check(codes.containsAll(listOf(KeyCode.CTRL, KeyCode.ALT, KeyCode.SHIFT, KeyCode.TAB)))
         }
         pass("Actual on-screen keyboard typed Arabic, English and a programming symbol in portrait and landscape; modifier controls retained")
+        main {
+            val field = KeyboardSwitcher::class.java.getDeclaredField("mLatinIME").apply { isAccessible = true }
+            (field.get(KeyboardSwitcher.getInstance()) as LatinIME).switchToSubtype(ThemePreviewView.subtype("en").rawSubtype)
+            ThemeGalleryRepository.useOriginal(targetContext)
+        }
+        waitForIdleSync(); SystemClock.sleep(500)
+        val nativeShortcuts = shortcuts(host)
+        main { ThemeGalleryRepository.apply(targetContext, ThemeCatalog.load(targetContext).first { it.id == "gold_royal_gold" }) }
+        waitForIdleSync(); SystemClock.sleep(500)
+        val themedShortcuts = shortcuts(host)
+        check(nativeShortcuts == themedShortcuts) { "Shortcut behavior changed: native=$nativeShortcuts gallery=$themedShortcuts" }
+        nativeShortcuts.filterValues { !it }.forEach { (name, _) -> log.append("BASELINE LIMITATION: native ").append(name).append(" was not observed in this editor; unchanged with gallery\n") }
+        pass("Actual Ctrl+A/C/V, Alt, Tab and Shift interactions match the native appearance baseline: $themedShortcuts")
+    }
+
+    private fun shortcuts(host: ThemeSmokeActivity): Map<String, Boolean> {
+        fun tap(code: Int) { tapKey { it.code == code || code in 'a'.code..'z'.code && it.code == code - 32 }; waitForIdleSync(); SystemClock.sleep(150) }
+        main { host.editor.setText("abc"); host.editor.setSelection(3); host.editor.keyEvents.clear() }
+        waitForIdleSync(); SystemClock.sleep(200)
+        tap(KeyCode.CTRL); tap('a'.code)
+        val selects = main { host.editor.selectionStart == 0 && host.editor.selectionEnd == 3 }
+        tap(KeyCode.CTRL); tap('c'.code)
+        val copied = main { (host.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip?.getItemAt(0)?.coerceToText(host)?.toString() == "abc" }
+        main { host.editor.setSelection(host.editor.text.length) }
+        tap(KeyCode.CTRL); tap('v'.code)
+        val pasted = main { host.editor.text.toString() == "abcabc" }
+        tap(KeyCode.ALT); tap('x'.code)
+        val alt = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_X && it.second and android.view.KeyEvent.META_ALT_ON != 0 } }
+        tap(KeyCode.TAB)
+        val tab = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_TAB } }
+        main { host.editor.setText("x"); host.editor.setSelection(1) }
+        waitForIdleSync(); SystemClock.sleep(200)
+        tap(KeyCode.SHIFT); tap('a'.code)
+        val shifted = main { host.editor.text.toString().endsWith("A") }
+        return linkedMapOf("Ctrl+A" to selects, "Ctrl+C" to copied, "Ctrl+V" to pasted, "Alt" to alt, "Tab" to tab, "Shift" to shifted)
     }
 
     private fun tapKey(predicate: (Key) -> Boolean) {
@@ -185,11 +223,27 @@ class ThemeSmokeInstrumentation : Instrumentation() {
     }
 
     private fun clickText(text: String) {
-        val nodes = uiAutomation.rootInActiveWindow.findAccessibilityNodeInfosByText(text)
+        val nodes = findText(text)
         check(nodes.isNotEmpty()) { "Missing UI text: $text" }
         var node: AccessibilityNodeInfo? = nodes.firstOrNull { it.text?.toString() == text } ?: nodes.first()
         while (node != null && !node.isClickable) node = node.parent
         check(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { "Could not click: $text" }
+    }
+
+    private fun findText(text: String): List<AccessibilityNodeInfo> {
+        val deadline = SystemClock.uptimeMillis() + 8000
+        do {
+            val found = mutableListOf<AccessibilityNodeInfo>()
+            fun visit(node: AccessibilityNodeInfo?) {
+                if (node == null) return
+                if (node.text?.toString()?.contains(text) == true || node.contentDescription?.toString()?.contains(text) == true) found.add(node)
+                for (index in 0 until node.childCount) visit(node.getChild(index))
+            }
+            visit(uiAutomation.rootInActiveWindow)
+            if (found.isNotEmpty()) return found
+            SystemClock.sleep(200)
+        } while (SystemClock.uptimeMillis() < deadline)
+        return emptyList()
     }
 
     private fun screenshot(name: String) {

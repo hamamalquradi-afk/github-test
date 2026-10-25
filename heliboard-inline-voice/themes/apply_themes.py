@@ -63,6 +63,23 @@ change(view, '    public KeyboardView(final Context context, final AttributeSet 
     '            @Nullable final Colors previewColors) {\n'
     '        super(context, attrs, defStyle);\n'
     '        mColors = previewColors != null ? previewColors : Settings.getValues().mColors;')
+change(view, '        mKeyVisualAttributes = KeyVisualAttributes.newInstance(keyAttr);',
+    '        mKeyVisualAttributes = KeyVisualAttributes.newInstance(keyAttr, mColors);')
+visual = 'app/src/main/java/helium314/keyboard/keyboard/internal/KeyVisualAttributes.java'
+change(visual, '    public static KeyVisualAttributes newInstance(@NonNull final TypedArray keyAttr) {\n',
+    '    public static KeyVisualAttributes newInstance(@NonNull final TypedArray keyAttr) {\n'
+    '        return newInstance(keyAttr, Settings.getValues().mColors);\n'
+    '    }\n\n'
+    '    @Nullable\n'
+    '    public static KeyVisualAttributes newInstance(@NonNull final TypedArray keyAttr, @NonNull final Colors colors) {\n')
+change(visual, '            return new KeyVisualAttributes(keyAttr);', '            return new KeyVisualAttributes(keyAttr, colors);')
+change(visual, '    private KeyVisualAttributes(@NonNull final TypedArray keyAttr) {',
+    '    private KeyVisualAttributes(@NonNull final TypedArray keyAttr, @NonNull final Colors colors) {')
+change(visual, '        final Colors colors = Settings.getValues().mColors;\n', '')
+change('app/src/main/java/helium314/keyboard/keyboard/internal/KeyboardParams.java',
+    '            mKeyVisualAttributes = KeyVisualAttributes.newInstance(keyAttr);',
+    '            mKeyVisualAttributes = KeyVisualAttributes.newInstance(keyAttr,\n'
+    '                helium314.keyboard.latin.themes.ThemePreviewContext.colorsFor(context));')
 
 settings = 'app/src/main/java/helium314/keyboard/latin/settings/Settings.java'
 change(settings, '    public void onSharedPreferenceChanged(final SharedPreferences prefs, final String key) {\n',

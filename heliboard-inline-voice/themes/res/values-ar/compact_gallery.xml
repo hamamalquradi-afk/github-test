@@ -4,6 +4,8 @@
     <string name="gallery_subtitle">%1$d قالبًا كاملًا · متاحة دون إنترنت</string>
     <string name="gallery_description">تصفح قوالب لوحة المفاتيح وعاينها وطبقها</string>
     <string name="gallery_all">جميع القوالب</string>
+    <string name="gallery_current">المظهر الحالي: %1$s</string>
+    <string name="gallery_native">إعدادات المظهر</string>
     <string name="gallery_my_themes">مظاهري المحفوظة</string>
     <string name="gallery_category_dark">داكنة</string>
     <string name="gallery_category_light">فاتحة</string>

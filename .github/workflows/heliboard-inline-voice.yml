@@ -43,7 +43,8 @@ jobs:
             ln -s android-37.0 "$ANDROID_HOME/platforms/android-37"
           fi
       - name: Retain Compact debug signing identity for subsequent builds
-        uses: actions/cache@v4
+        id: compact_signing
+        uses: actions/cache/restore@v4
         with:
           path: ~/.android/debug.keystore
           key: heliboard-compact-debug-signing-v1
@@ -92,6 +93,12 @@ jobs:
           APK=heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK"
           sha256sum "$APK" > "${APK}.sha256"
+      - name: Save Compact debug signing identity before emulator tests
+        if: steps.compact_signing.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: heliboard-compact-debug-signing-v1
       - name: Publish built APK (if successful)
         uses: actions/upload-artifact@v4
         with:
@@ -116,6 +123,7 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
+          profile: pixel_2
           emulator-boot-timeout: 600
           disable-animations: true
           script: |

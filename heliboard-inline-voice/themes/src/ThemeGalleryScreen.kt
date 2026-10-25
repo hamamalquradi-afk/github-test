@@ -77,6 +77,9 @@ fun ThemeGalleryScreen(onClickBack: () -> Unit) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text(stringResource(R.string.gallery_subtitle, themes.size), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.gallery_current,
+                ThemeGalleryRepository.selected(context)?.displayName(context) ?: stringResource(R.string.gallery_native)),
+                Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = { editSource = Json.encodeToString(ThemeGalleryRepository.capture(context)) }) { Text(stringResource(R.string.gallery_create)) }
                 TextButton(onClick = { ThemeGalleryRepository.useOriginal(context); notice = appliedMessage }) { Text(stringResource(R.string.gallery_original)) }
@@ -89,7 +92,7 @@ fun ThemeGalleryScreen(onClickBack: () -> Unit) {
             }
             if (visible.isEmpty()) Text(stringResource(R.string.gallery_empty), Modifier.padding(24.dp))
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(172.dp),
+                columns = GridCells.Adaptive(148.dp),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -131,6 +134,7 @@ fun ThemeGalleryScreen(onClickBack: () -> Unit) {
         ThemeEditor(Json.decodeFromString(source), onClose = { editSource = null }, onSave = { draft, name ->
             val savedSpec = ThemeGalleryRepository.save(context, draft, name)
             ThemeGalleryRepository.apply(context, savedSpec)
+            ThemeGalleryRepository.pruneImages(context)
             editSource = null; category = "custom"; notice = appliedMessage
         })
     }

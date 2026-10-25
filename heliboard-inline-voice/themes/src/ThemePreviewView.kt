@@ -64,8 +64,8 @@ class ThemePreviewView(context: Context) : View(context) {
         fun buildKeyboard(context: Context, theme: ThemeSpec, language: String): Keyboard {
             val settings = Settings.getValues()
             val colors = ThemeGalleryRepository.colors(context, theme, true)
-            val themed = ContextThemeWrapper(context,
-                KeyboardTheme.getKeyboardThemeForStyle(theme.style, colors.hasKeyBorders).mStyleId)
+            val themed = ThemePreviewContext(context,
+                KeyboardTheme.getKeyboardThemeForStyle(theme.style, colors.hasKeyBorders).mStyleId, colors)
             val params = KeyboardLayoutSet.Params().apply {
                 editorInfo = EditorInfo().apply { inputType = android.text.InputType.TYPE_CLASS_TEXT }
                 subtype = ThemePreviewView.subtype(language)
@@ -82,8 +82,8 @@ class ThemePreviewView(context: Context) : View(context) {
             val key = "${theme.hashCode()}:$language:$width:${context.resources.configuration}:${context.prefs().all.hashCode()}"
             cache.get(key)?.let { return it }
             val colors = ThemeGalleryRepository.colors(context, theme, true)
-            val themed = ContextThemeWrapper(context,
-                KeyboardTheme.getKeyboardThemeForStyle(theme.style, colors.hasKeyBorders).mStyleId)
+            val themed = ThemePreviewContext(context,
+                KeyboardTheme.getKeyboardThemeForStyle(theme.style, colors.hasKeyBorders).mStyleId, colors)
             val keyboard = buildKeyboard(context, theme, language)
             val realWidth = keyboard.mOccupiedWidth.coerceAtLeast(1)
             val realHeight = keyboard.mOccupiedHeight.coerceAtLeast(1)
