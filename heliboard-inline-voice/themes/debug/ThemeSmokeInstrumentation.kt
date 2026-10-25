@@ -164,11 +164,13 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                 }
             }
             waitForIdleSync()
-            if (main { host.editor.hasWindowFocus() &&
-                    runCatching { KeyboardSwitcher.getInstance().mainKeyboardView.isShown }.getOrDefault(false) }) return
+            // The IME or text-selection UI may temporarily own window focus.
+            // Keep the original visibility precondition; the actual editor-text
+            // and key-event assertions below verify that input reaches the host.
+            if (main { runCatching { KeyboardSwitcher.getInstance().mainKeyboardView.isShown }.getOrDefault(false) }) return
             SystemClock.sleep(150)
         } while (SystemClock.uptimeMillis() < deadline)
-        error("Keyboard readiness timed out: editorWindowFocus=" + main { host.editor.hasWindowFocus() } +
+        error("Keyboard readiness timed out: visible=false, editorWindowFocus=" + main { host.editor.hasWindowFocus() } +
             ", selectedIme=" + android.provider.Settings.Secure.getString(targetContext.contentResolver, "default_input_method"))
     }
 
