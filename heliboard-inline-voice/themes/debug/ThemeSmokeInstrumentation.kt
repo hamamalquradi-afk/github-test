@@ -157,12 +157,23 @@ class ThemeSmokeInstrumentation : Instrumentation() {
         val start = SystemClock.uptimeMillis()
         val deadline = start + 10000
         var restoredForeground = false
+        var explicitlyRequestedIme = false
         do {
             main {
                 if (host.editor.hasWindowFocus()) {
                     host.editor.requestFocus()
-                    (host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
-                        .showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    val inputManager = host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    inputManager.showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    if (!explicitlyRequestedIme && SystemClock.uptimeMillis() - start > 1200) {
+                        // After Ctrl+C Android can hide the IME while the editor
+                        // still owns focus. In this DEBUG-ONLY smoke target,
+                        // explicitly request its keyboard rather than accepting
+                        // an absent IME as a successful shortcut test.
+                        host.editor.windowInsetsController?.show(android.view.WindowInsets.Type.ime())
+                        inputManager.showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+                        explicitlyRequestedIme = true
+                        log.append("Explicitly requested IME after editor retained focus\\n")
+                    }
                 } else if (!restoredForeground && SystemClock.uptimeMillis() - start > 1200) {
                     // Android's text-selection/clipboard overlay can move this
                     // debug editor task behind another window after Ctrl+C.
