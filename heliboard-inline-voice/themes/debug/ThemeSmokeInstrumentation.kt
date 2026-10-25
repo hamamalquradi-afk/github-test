@@ -302,7 +302,7 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                     .primaryClip?.getItemAt(0)?.coerceToText(host)?.toString()
             }
             log.append("Ctrl+V failed after bounded wait: ")
-                .append(editorState).append(", clipboard=").append(clipboardState).append('\\n')
+                .append(editorState).append(", clipboard=").append(clipboardState).append(System.lineSeparator())
         }
         tap(KeyCode.ALT); tap('x'.code)
         val alt = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_X && it.second and android.view.KeyEvent.META_ALT_ON != 0 } }
