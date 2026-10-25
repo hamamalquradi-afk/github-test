@@ -24,7 +24,6 @@ import helium314.keyboard.latin.utils.DeviceProtectedUtils
 import helium314.keyboard.latin.utils.SubtypeSettings
 import helium314.keyboard.latin.utils.prefs
 import helium314.keyboard.settings.SettingsActivity
-import helium314.keyboard.settings.SettingsDestination
 import java.io.File
 
 /** Runs against the installed, minified APK. Never packaged into a release variant. */
@@ -66,9 +65,15 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                     pass("Closed visible setup wizard via Configure after confirming selected IME")
                 }
             }
-            main { SettingsDestination.navigateTo(SettingsDestination.Themes) }
-            waitForIdleSync(); SystemClock.sleep(1000)
+            // Exercise the same visible navigation path as a real user.
+            // The upstream SettingsDestination.navigateTo flow is a short-lived
+            // asynchronous event; on a cold start it can reset before Compose
+            // observes it, leaving the main settings page visible.
+            clickText(activity.getString(helium314.keyboard.latin.R.string.settings_screen_appearance))
+            clickText(activity.getString(helium314.keyboard.latin.R.string.gallery_title))
+            waitForIdleSync(); SystemClock.sleep(500)
             screenshot("gallery-$mode")
+            pass("Opened Themes through actual Appearance setting rather than an ephemeral navigation event")
             check(findText(activity.getString(helium314.keyboard.latin.R.string.gallery_title)).isNotEmpty()) {
                 "Gallery title missing from accessibility tree; mode=$mode, selectedIme=" +
                     android.provider.Settings.Secure.getString(targetContext.contentResolver,
