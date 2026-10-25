@@ -7,6 +7,7 @@ mkdir -p "$out"
 adb shell settings put secure show_ime_with_hard_keyboard 1
 run_mode() {
   local mode="$1"
+  python3 heliboard-inline-voice/themes/prepare-emulator-fixture.py "$package"
   # Force-stop changes Android's selected IME. Re-select it before opening settings,
   # otherwise the welcome wizard correctly covers the gallery during this test.
   adb shell ime enable "$package/helium314.keyboard.latin.LatinIME"

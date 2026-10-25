@@ -7,11 +7,11 @@ on:
       source_run_id:
         description: Run that built the unchanged application source
         required: true
-        default: '40210488649'
+        default: '40213243127'
       source_commit:
         description: Exact application source commit for that run
         required: true
-        default: fd9611ffb62c7808deec7c91f4697a1862c0bbdc
+        default: 1fda80e47f2b4fcc7b749e4cfc7d86955f2361d8
 
 permissions:
   contents: read
@@ -23,8 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      SOURCE_RUN: ${{ inputs.source_run_id || '40210488649' }}
-      SOURCE_COMMIT: ${{ inputs.source_commit || 'fd9611ffb62c7808deec7c91f4697a1862c0bbdc' }}
+      SOURCE_RUN: ${{ inputs.source_run_id || '40213243127' }}
+      SOURCE_COMMIT: ${{ inputs.source_commit || '1fda80e47f2b4fcc7b749e4cfc7d86955f2361d8' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
           python3 - <<'PY'
           import os, subprocess
           changed = subprocess.check_output(['git', 'diff', '--name-only', os.environ['SOURCE_COMMIT'], 'HEAD'], text=True).splitlines()
-          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh'}
+          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py'}
           unexpected = [p for p in changed if p not in allowed and not p.endswith('.md')]
           if unexpected:
               raise SystemExit('Application source changed; rebuild is required: ' + repr(unexpected))
@@ -46,9 +46,22 @@ jobs:
           PY
       - name: Retrieve existing APKs and complete JVM reports
         run: |
-          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name HeliBoard-inline-voice-debug --dir verified/debug
-          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name HeliBoard-Compact-Themes-side-by-side --dir verified/themes
-          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name HeliBoard-unit-test-reports --dir verified/unit
+          mkdir -p verified
+          gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN/artifacts?per_page=100" > verified/artifacts.json
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, zipfile
+          artifacts = json.loads(pathlib.Path('verified/artifacts.json').read_text())['artifacts']
+          for name, folder in [('HeliBoard-inline-voice-debug', 'debug'), ('HeliBoard-Compact-Themes-side-by-side', 'themes'), ('HeliBoard-unit-test-reports', 'unit')]:
+              artifact = max((a for a in artifacts if a['name'] == name and not a['expired']), key=lambda a: a['created_at'])
+              assert artifact['workflow_run']['head_sha'] == os.environ['SOURCE_COMMIT']
+              archive = pathlib.Path('verified') / (folder + '.zip')
+              with archive.open('wb') as output:
+                  subprocess.run(['gh', 'api', 'repos/${{ github.repository }}/actions/artifacts/' + str(artifact['id']) + '/zip'], stdout=output, check=True)
+              with zipfile.ZipFile(archive) as zipped:
+                  assert zipped.testzip() is None
+                  zipped.extractall(pathlib.Path('verified') / folder)
+              print('Verified artifact source:', name, artifact['id'])
+          PY
           python3 heliboard-inline-voice/compare_test_results.py verified/unit/heliboard-baseline/app/build/test-results/testDebugUnitTest verified/unit/heliboard-source/app/build/test-results/testDebugUnitTest
       - uses: actions/setup-java@v4
         with:
