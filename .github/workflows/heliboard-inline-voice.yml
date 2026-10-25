@@ -63,8 +63,18 @@ jobs:
         working-directory: heliboard-source
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace --max-workers=2
-          ./gradlew assembleThemes --stacktrace --max-workers=2
+          run_build() {
+            set +e
+            ./gradlew "$@" --stacktrace --max-workers=2 2>&1 | tee /tmp/keynova-gradle-build.log
+            result=${PIPESTATUS[0]}
+            set -e
+            if [ "$result" -ne 0 ]; then
+              python3 ../heliboard-inline-voice/branding/report_build_failure.py /tmp/keynova-gradle-build.log
+              return "$result"
+            fi
+          }
+          run_build assembleDebug
+          run_build assembleThemes
           ./gradlew --stop
       - name: Verify KEYNOVA SMART APK identity in both variants
         shell: bash
