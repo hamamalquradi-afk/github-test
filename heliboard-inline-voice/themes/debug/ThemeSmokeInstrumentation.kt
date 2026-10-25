@@ -169,10 +169,29 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                     SubtypeSettings.addEnabledSubtype(targetContext.prefs(), subtype)
                     val switcher = KeyboardSwitcher.getInstance()
                     val field = KeyboardSwitcher::class.java.getDeclaredField("mLatinIME").apply { isAccessible = true }
-                    (field.get(switcher) as LatinIME).switchToSubtype(subtype)
+                    val ime = field.get(switcher) as LatinIME
+                    // An IME restored after force-stop can still display the cached
+                    // English keyboard even if its selected subtype already is Arabic.
+                    // Move through the other subtype to avoid the same-subtype fast path.
+                    val alternate = ThemePreviewView.subtype(if (language == "en") "ar" else "en").rawSubtype
+                    SubtypeSettings.addEnabledSubtype(targetContext.prefs(), alternate)
+                    ime.switchToSubtype(alternate)
+                    ime.switchToSubtype(subtype)
                 }
-                waitForIdleSync(); SystemClock.sleep(500)
                 val code = if (language == "en") 'q'.code else 'ض'.code
+                // Subtype changes propagate to the displayed KeyboardView asynchronously.
+                // Do not tap a stale layout: this would create a false persistence failure.
+                val deadline = SystemClock.uptimeMillis() + 6000
+                do {
+                    waitForIdleSync()
+                    val ready = main {
+                        KeyboardSwitcher.getInstance().mainKeyboardView.keyboard?.sortedKeys?.any {
+                            it.code == code || (language == "en" && it.code == 'Q'.code)
+                        } == true
+                    }
+                    if (ready) break
+                    SystemClock.sleep(150)
+                } while (SystemClock.uptimeMillis() < deadline)
                 tapKey { it.code == code || language == "en" && it.code == 'Q'.code }
                 waitForIdleSync(); SystemClock.sleep(150)
                 check(main { host.editor.text.toString().lowercase().contains(if (language == "en") "q" else "ض") }) { "Real IME did not type $language / wide=$wide" }
