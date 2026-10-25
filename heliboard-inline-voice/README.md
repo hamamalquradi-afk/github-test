@@ -1,6 +1,17 @@
-# HeliBoard Compact — inline microphone (experimental Android debug APK)
+# KEYNOVA SMART — كينوفا سمارت (HeliBoard Compact overlay)
 
 This directory contains an overlay for the pinned upstream [HeliBoard](https://github.com/HeliBorg/HeliBoard) source, commit `e97acdbe7ad16ef06d89d71d35ed1096e6d69f4c` (4.3-beta1). The GitHub Action fetches that exact upstream revision, applies the overlay and builds the APK. The original source repository and this repository's `main` branch are not changed.
+
+
+## Phase 01 identity
+
+KEYNOVA SMART / كينوفا سمارت uses the owner-approved tilted Nova Pulse keycap
+identity, with `TYPE • SPEAK • CREATE` / `اكتب • تحدث • أبدع`. The launcher, IME,
+welcome and About screen use the new resources. Both existing build variants keep
+their package IDs, provider authorities and signing configuration. The adaptive,
+monochrome and legacy icon resources are in [branding](branding/README.md).
+The internal backup archive identity remains unchanged for compatibility.
+Artifact/APK filenames retain the upstream naming used by the build infrastructure.
 
 ## What is included
 
@@ -18,7 +29,7 @@ This directory contains an overlay for the pinned upstream [HeliBoard](https://g
 1. Download `HeliBoard-inline-voice-debug` from the most recent successful [Actions run](https://github.com/hamamalquradi-afk/github-test/actions/workflows/heliboard-inline-voice.yml) and extract the APK from the ZIP artifact.
 2. The compact debug test app has **application ID `helium314.keyboard.compactdebug`**, with unique clipboard/gesture provider authorities. It is intended to install alongside regular HeliBoard and the earlier `helium314.keyboard.debug` testing app. Do **not** uninstall your existing working keyboard.
 3. Export/backup preferences and custom layouts before importing them into the test app. Imported custom layouts are not overwritten by the build overlay, but they are not automatically shared across different app IDs.
-4. Enable HeliBoard Compact in Android settings, select it as the current keyboard, then test Arabic/English, punctuation, Ctrl/Alt/Shift, and microphone insertion in an ordinary text field.
+4. Enable KEYNOVA SMART / كينوفا سمارت in Android settings, select it as the current keyboard, then test Arabic/English, punctuation, Ctrl/Alt/Shift, and microphone insertion in an ordinary text field.
 
 **Debug signing caveat:** The gallery workflow retains its debug signing key for subsequent builds. Earlier builds used temporary runner keys, and their private keys are not present in this repository. An older Compact installation may reject an update because its certificate differs. Keep the installed keyboard and its settings; a compatible update requires its original keystore. Do not uninstall the existing keyboard as a workaround. A production release channel still requires a securely stored persistent release key.
 

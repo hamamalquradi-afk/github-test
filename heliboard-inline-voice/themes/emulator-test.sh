@@ -15,6 +15,14 @@ run_mode() {
   adb shell am instrument -w -r -e mode "$mode" "$runner" | tee "$out/instrumentation-$mode.txt"
   adb pull "/sdcard/Android/data/$package/files/gallery-smoke/." "$out/" || true
   if ! grep -Fq 'THEME_SMOKE_PASS' "$out/instrumentation-$mode.txt"; then
+    python3 - "$out/instrumentation-$mode.txt" <<'PYCODE'
+import pathlib, sys
+lines = pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines()
+start = next((i for i, line in enumerate(lines) if 'stream=' in line or 'Exception' in line or 'AssertionError' in line), 0)
+for line in lines[start:start + 18]:
+    line = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print('::error title=Keyboard emulator failure::' + line[:1800])
+PYCODE
     adb logcat -d -t 1800 > "$out/failure-logcat-$mode.txt" || true
     adb exec-out run-as "$package" cat "/data/user_de/0/$package/shared_prefs/${package}_preferences.xml" > "$out/failure-preferences-$mode.xml" || true
     exit 1
