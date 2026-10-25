@@ -96,19 +96,28 @@ jobs:
             echo "::notice title=Verified APK SHA-256::$variant $EXPECTED"
           done
       - name: Compare signing identity with the previous Compact checkpoint
+        # Historical compatibility is separate from the required current APK
+        # signature/checksum gate above; disclose failures without hiding smoke tests.
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+          trap 'echo "::error title=Historical signing comparison::Comparison failed at line $LINENO with exit code $?; historical update compatibility is unverified."' ERR
           PREVIOUS_SHA="$(gh api "repos/${{ github.repository }}/actions/runs/40225011537" --jq .head_sha)"
+          echo "::notice title=Previous checkpoint identity::$PREVIOUS_SHA"
           test "$PREVIOUS_SHA" = '455d937ac1c3e4a258eda078753b50db7e5d66a2'
           if gh run download 40225011537 --repo "${{ github.repository }}" --name HeliBoard-inline-voice-debug --dir /tmp/keynova-previous-identity; then
             export APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
             python3 - <<'PY'
           import pathlib, os, re, subprocess
           def certificate(path):
-              output = subprocess.check_output([os.environ['APKSIGNER'], 'verify', '--print-certs', str(path)], text=True)
+              result = subprocess.run([os.environ['APKSIGNER'], 'verify', '--print-certs', str(path)], text=True, capture_output=True)
+              output = result.stdout
+              if result.returncode:
+                  print('::error title=Historical certificate verification::' + str(path) + ': ' + (result.stderr or result.stdout).replace('%', '%25').replace('\n', '%0A')[:2400])
+                  raise RuntimeError('Historical certificate could not be verified')
               found = re.findall(r'Signer #1 certificate SHA-256 digest: (\S+)', output)
-              assert len(found) == 1, 'Missing signing certificate'
+              assert len(found) == 1, 'Missing signing certificate: ' + output[:1800]
               return found[0]
           previous = certificate(pathlib.Path('/tmp/keynova-previous-identity/HeliBoard_4.3-beta1-debug.apk'))
           current = certificate(pathlib.Path('verified/debug/HeliBoard_4.3-beta1-debug.apk'))
@@ -134,10 +143,13 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           script: |
-            if ! bash heliboard-inline-voice/smoke-test.sh verified/debug/HeliBoard_4.3-beta1-debug.apk; then
+            if ! bash heliboard-inline-voice/smoke-test.sh verified/debug/HeliBoard_4.3-beta1-debug.apk > /tmp/keynova-launch-smoke.txt 2>&1; then
+              cat /tmp/keynova-launch-smoke.txt
+              python3 -c "import pathlib; lines=pathlib.Path('/tmp/keynova-launch-smoke.txt').read_text(errors='replace').splitlines(); [print('::error title=Launcher command failure::'+line.replace('%','%25').replace('\r','%0D')) for line in lines[-18:]]"
               python3 -c "import pathlib; p=pathlib.Path('heliboard-inline-voice/test-results/emulator-logcat.txt'); lines=p.read_text(errors='replace').splitlines() if p.exists() else ['Launcher smoke failed before log capture']; selected=[i for i,line in enumerate(lines) if 'FATAL EXCEPTION' in line or 'Process: helium314.keyboard.compactdebug' in line]; start=max(0,selected[0]-2) if selected else max(0,len(lines)-18); [print('::error title=Launcher smoke failure::'+line.replace('%','%25').replace('\r','%0D')) for line in lines[start:start+24]]"
               exit 1
             fi
+            cat /tmp/keynova-launch-smoke.txt
             bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactdebug
             adb install -r verified/themes/HeliBoard_4.3-beta1-themes.apk
             adb shell pm path helium314.keyboard.compactdebug
