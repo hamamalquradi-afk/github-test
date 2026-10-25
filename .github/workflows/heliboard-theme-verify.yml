@@ -135,32 +135,43 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          JOB_ID="$(gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN/jobs" --jq '.jobs[] | select(.name == "build-debug") | .id')"
-          test -n "$JOB_ID"
-          gh api "repos/${{ github.repository }}/actions/jobs/$JOB_ID/logs" > /tmp/keynova-source-job.log
           python3 - <<'PY'
-          import pathlib, re
-          lines = pathlib.Path('/tmp/keynova-source-job.log').read_text(errors='replace').splitlines()
+          import json, os, re, subprocess
+          repository = os.environ['GITHUB_REPOSITORY']
+          source_run = os.environ['SOURCE_RUN']
+          def sanitize(text):
+              return re.sub(r'https?://[^\s]+', '[URL redacted]', text).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          def api(path):
+              result = subprocess.run(['gh', 'api', path], capture_output=True)
+              if result.returncode:
+                  detail = result.stderr.decode(errors='replace')
+                  print('::error title=Signing-cache API diagnostic::' + sanitize(detail)[:1800])
+                  raise SystemExit(result.returncode)
+              return result.stdout
+          jobs = json.loads(api(f'repos/{repository}/actions/runs/{source_run}/jobs'))['jobs']
+          print('::notice title=Source job names::' + sanitize(', '.join(job['name'] for job in jobs)))
+          selected = [job for job in jobs if job['name'] == 'build-debug']
+          if not selected and len(jobs) == 1:
+              selected = jobs
+          assert len(selected) == 1, 'Cannot identify one source build job'
+          log = api(f"repos/{repository}/actions/jobs/{selected[0]['id']}/logs").decode(errors='replace')
+          lines = log.splitlines()
           indices = [i for i, line in enumerate(lines) if 'Cache save failed' in line or 'Path Validation Error' in line]
           emitted = set()
           for i in indices:
-              for line in lines[max(0, i-5):i+4]:
+              for line in lines[max(0, i-6):i+4]:
                   if line in emitted or not any(term in line.lower() for term in ['cache', 'path', 'keystore', 'error', 'failed']):
                       continue
                   if any(term in line.lower() for term in ['authorization', 'token', 'password', 'sig=']):
                       continue
-                  line = re.sub(r'https?://[^\s]+', '[URL redacted]', line)
                   emitted.add(line)
                   if len(emitted) <= 10:
-                      print('::notice title=Signing-cache diagnostic::' + line.replace('%', '%25'))
+                      print('::notice title=Signing-cache diagnostic::' + sanitize(line))
           if not indices:
               print('::notice title=Signing-cache diagnostic::No cache save error found in source job logs.')
-          PY
-          gh api "repos/${{ github.repository }}/actions/caches?key=heliboard-compact-debug-signing-v1" --jq '.actions_caches[] | {key,ref,size_in_bytes}' > /tmp/keynova-signing-cache-metadata.json
-          python3 - <<'PY'
-          import pathlib
-          text = pathlib.Path('/tmp/keynova-signing-cache-metadata.json').read_text().strip()
-          print('::notice title=Signing-cache metadata::' + (text if text else 'No retained cache entry for this signing key').replace('%', '%25').replace('\n', '%0A'))
+          caches = json.loads(api(f'repos/{repository}/actions/caches?key=heliboard-compact-debug-signing-v1'))['actions_caches']
+          metadata = [{key: cache.get(key) for key in ['key', 'ref', 'size_in_bytes']} for cache in caches]
+          print('::notice title=Signing-cache metadata::' + sanitize(json.dumps(metadata) if metadata else 'No retained cache entry for this signing key'))
           PY
       - name: Enable KVM
         if: steps.provenance.outputs.source_conclusion != 'success'
@@ -201,30 +212,41 @@ jobs:
       - name: Inspect bounded non-secret signing-cache diagnostics
         shell: bash
         run: |
-          JOB_ID="$(gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN/jobs" --jq '.jobs[] | select(.name == "build-debug") | .id')"
-          test -n "$JOB_ID"
-          gh api "repos/${{ github.repository }}/actions/jobs/$JOB_ID/logs" > /tmp/keynova-source-job.log
           python3 - <<'PY'
-          import pathlib, re
-          lines = pathlib.Path('/tmp/keynova-source-job.log').read_text(errors='replace').splitlines()
+          import json, os, re, subprocess
+          repository = os.environ['GITHUB_REPOSITORY']
+          source_run = os.environ['SOURCE_RUN']
+          def sanitize(text):
+              return re.sub(r'https?://[^\s]+', '[URL redacted]', text).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          def api(path):
+              result = subprocess.run(['gh', 'api', path], capture_output=True)
+              if result.returncode:
+                  detail = result.stderr.decode(errors='replace')
+                  print('::error title=Signing-cache API diagnostic::' + sanitize(detail)[:1800])
+                  raise SystemExit(result.returncode)
+              return result.stdout
+          jobs = json.loads(api(f'repos/{repository}/actions/runs/{source_run}/jobs'))['jobs']
+          print('::notice title=Source job names::' + sanitize(', '.join(job['name'] for job in jobs)))
+          selected = [job for job in jobs if job['name'] == 'build-debug']
+          if not selected and len(jobs) == 1:
+              selected = jobs
+          assert len(selected) == 1, 'Cannot identify one source build job'
+          log = api(f"repos/{repository}/actions/jobs/{selected[0]['id']}/logs").decode(errors='replace')
+          lines = log.splitlines()
           indices = [i for i, line in enumerate(lines) if 'Cache save failed' in line or 'Path Validation Error' in line]
           emitted = set()
           for i in indices:
-              for line in lines[max(0, i-5):i+4]:
+              for line in lines[max(0, i-6):i+4]:
                   if line in emitted or not any(term in line.lower() for term in ['cache', 'path', 'keystore', 'error', 'failed']):
                       continue
                   if any(term in line.lower() for term in ['authorization', 'token', 'password', 'sig=']):
                       continue
-                  line = re.sub(r'https?://[^\s]+', '[URL redacted]', line)
                   emitted.add(line)
                   if len(emitted) <= 10:
-                      print('::notice title=Signing-cache diagnostic::' + line.replace('%', '%25'))
+                      print('::notice title=Signing-cache diagnostic::' + sanitize(line))
           if not indices:
               print('::notice title=Signing-cache diagnostic::No cache save error found in source job logs.')
-          PY
-          gh api "repos/${{ github.repository }}/actions/caches?key=heliboard-compact-debug-signing-v1" --jq '.actions_caches[] | {key,ref,size_in_bytes}' > /tmp/keynova-signing-cache-metadata.json
-          python3 - <<'PY'
-          import pathlib
-          text = pathlib.Path('/tmp/keynova-signing-cache-metadata.json').read_text().strip()
-          print('::notice title=Signing-cache metadata::' + (text if text else 'No retained cache entry for this signing key').replace('%', '%25').replace('\n', '%0A'))
+          caches = json.loads(api(f'repos/{repository}/actions/caches?key=heliboard-compact-debug-signing-v1'))['actions_caches']
+          metadata = [{key: cache.get(key) for key in ['key', 'ref', 'size_in_bytes']} for cache in caches]
+          print('::notice title=Signing-cache metadata::' + sanitize(json.dumps(metadata) if metadata else 'No retained cache entry for this signing key'))
           PY
