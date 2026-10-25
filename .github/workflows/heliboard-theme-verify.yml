@@ -41,7 +41,7 @@ jobs:
           python3 - <<'PY'
           import os, subprocess
           changed = subprocess.check_output(['git', 'diff', '--name-only', os.environ['SOURCE_COMMIT'], 'HEAD'], text=True).splitlines()
-          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py'}
+          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py', 'heliboard-inline-voice/branding/verify-emulator.sh'}
           unexpected = [p for p in changed if p not in allowed and not p.endswith('.md')]
           if unexpected:
               raise SystemExit('Application source changed; rebuild is required: ' + repr(unexpected))
@@ -116,9 +116,11 @@ jobs:
               if result.returncode:
                   print('::error title=Historical certificate verification::' + str(path) + ': ' + (result.stderr or result.stdout).replace('%', '%25').replace('\n', '%0A')[:2400])
                   raise RuntimeError('Historical certificate could not be verified')
-              found = re.findall(r'Signer #1 certificate SHA-256 digest: (\S+)', output)
-              assert len(found) == 1, 'Missing signing certificate: ' + output[:1800]
-              return found[0]
+              found = set(re.findall(r'certificate SHA-256 digest:\s*([a-fA-F0-9]{64})', output))
+              if len(found) != 1:
+                  print('::error title=Certificate metadata::' + output.replace('%', '%25').replace('\n', '%0A')[:2600])
+                  raise RuntimeError('Cannot establish one signing certificate')
+              return next(iter(found)).lower()
           previous = certificate(pathlib.Path('/tmp/keynova-previous-identity/HeliBoard_4.3-beta1-debug.apk'))
           current = certificate(pathlib.Path('verified/debug/HeliBoard_4.3-beta1-debug.apk'))
           if previous == current:
@@ -142,20 +144,7 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 600
           disable-animations: true
-          script: |
-            if ! bash heliboard-inline-voice/smoke-test.sh verified/debug/HeliBoard_4.3-beta1-debug.apk > /tmp/keynova-launch-smoke.txt 2>&1; then
-              cat /tmp/keynova-launch-smoke.txt
-              python3 -c "import pathlib; lines=pathlib.Path('/tmp/keynova-launch-smoke.txt').read_text(errors='replace').splitlines(); [print('::error title=Launcher command failure::'+line.replace('%','%25').replace('\r','%0D')) for line in lines[-18:]]"
-              python3 -c "import pathlib; p=pathlib.Path('heliboard-inline-voice/test-results/emulator-logcat.txt'); lines=p.read_text(errors='replace').splitlines() if p.exists() else ['Launcher smoke failed before log capture']; selected=[i for i,line in enumerate(lines) if 'FATAL EXCEPTION' in line or 'Process: helium314.keyboard.compactdebug' in line]; start=max(0,selected[0]-2) if selected else max(0,len(lines)-18); [print('::error title=Launcher smoke failure::'+line.replace('%','%25').replace('\r','%0D')) for line in lines[start:start+24]]"
-              exit 1
-            fi
-            cat /tmp/keynova-launch-smoke.txt
-            bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactdebug
-            adb install -r verified/themes/HeliBoard_4.3-beta1-themes.apk
-            adb shell pm path helium314.keyboard.compactdebug
-            adb shell pm path helium314.keyboard.compactthemesdebug
-            bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactthemesdebug
-            adb shell pm path helium314.keyboard.compactdebug
+          script: bash heliboard-inline-voice/branding/verify-emulator.sh
       - name: Upload final emulator reports and screenshots
         if: always() && steps.provenance.outputs.source_conclusion != 'success'
         uses: actions/upload-artifact@v4
@@ -164,4 +153,5 @@ jobs:
           path: |
             heliboard-inline-voice/test-results/gallery/**
             heliboard-inline-voice/test-results/emulator-logcat.txt
+            heliboard-inline-voice/test-results/launch-commands.txt
           if-no-files-found: error
