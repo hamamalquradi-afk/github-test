@@ -154,13 +154,24 @@ class ThemeSmokeInstrumentation : Instrumentation() {
     }
 
     private fun awaitEditorKeyboard(host: ThemeSmokeActivity) {
-        val deadline = SystemClock.uptimeMillis() + 10000
+        val start = SystemClock.uptimeMillis()
+        val deadline = start + 10000
+        var restoredForeground = false
         do {
             main {
                 if (host.editor.hasWindowFocus()) {
                     host.editor.requestFocus()
                     (host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
                         .showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                } else if (!restoredForeground && SystemClock.uptimeMillis() - start > 1200) {
+                    // Android's text-selection/clipboard overlay can move this
+                    // debug editor task behind another window after Ctrl+C.
+                    // Bring the EXISTING test activity forward without recreating
+                    // it or clearing editor text; never bypass actual key presses.
+                    host.startActivity(Intent(host, ThemeSmokeActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                    restoredForeground = true
+                    log.append("Reordered existing smoke editor to restore window focus\\n")
                 }
             }
             waitForIdleSync()
