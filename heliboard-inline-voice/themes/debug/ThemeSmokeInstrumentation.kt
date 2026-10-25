@@ -279,7 +279,31 @@ class ThemeSmokeInstrumentation : Instrumentation() {
         val copied = main { (host.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip?.getItemAt(0)?.coerceToText(host)?.toString() == "abc" }
         main { host.editor.setSelection(host.editor.text.length) }
         tap(KeyCode.CTRL); tap('v'.code)
-        val pasted = main { host.editor.text.toString() == "abcabc" }
+        // Clipboard delivery and InputConnection text updates are asynchronous
+        // on some Android emulators. Keep the real touch-injected Ctrl+V and
+        // exact editor assertion, but allow bounded completion before failing.
+        val pasteDeadline = SystemClock.uptimeMillis() + 2500
+        var pasted = false
+        do {
+            waitForIdleSync()
+            pasted = main { host.editor.text.toString() == "abcabc" }
+            if (pasted) break
+            SystemClock.sleep(100)
+        } while (SystemClock.uptimeMillis() < pasteDeadline)
+        if (!pasted) {
+            val editorState = main {
+                "text=" + host.editor.text.toString() +
+                    ", selection=" + host.editor.selectionStart + ".." + host.editor.selectionEnd +
+                    ", windowFocus=" + host.editor.hasWindowFocus() +
+                    ", inputFocus=" + host.editor.hasFocus()
+            }
+            val clipboardState = main {
+                (host.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                    .primaryClip?.getItemAt(0)?.coerceToText(host)?.toString()
+            }
+            log.append("Ctrl+V failed after bounded wait: ")
+                .append(editorState).append(", clipboard=").append(clipboardState).append('\\n')
+        }
         tap(KeyCode.ALT); tap('x'.code)
         val alt = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_X && it.second and android.view.KeyEvent.META_ALT_ON != 0 } }
         tap(KeyCode.TAB)
