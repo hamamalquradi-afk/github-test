@@ -51,11 +51,29 @@ jobs:
         with:
           path: ~/.android/debug.keystore
           key: heliboard-compact-debug-signing-v1
+      - name: Restore pinned Gradle dependencies
+        id: pinned_gradle
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: heliboard-pinned-deps-e97acdbe-v1
       - name: Build experimental debug APK
         working-directory: heliboard-source
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug assembleThemes --stacktrace
+          ./gradlew assembleDebug --stacktrace --max-workers=2
+          ./gradlew assembleThemes --stacktrace --max-workers=2
+          ./gradlew --stop
+      - name: Retain pinned Gradle dependencies
+        if: steps.pinned_gradle.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: heliboard-pinned-deps-e97acdbe-v1
       - name: Use Java 21 for Robolectric SDK 36 unit tests
         uses: actions/setup-java@v4
         with:

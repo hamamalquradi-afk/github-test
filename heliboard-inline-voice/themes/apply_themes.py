@@ -134,6 +134,8 @@ file.write_text(text)
 
 # Increment only this experiment's update version; retain its application ID and providers.
 change('app/build.gradle.kts', 'versionCode = 4300', 'versionCode = 4301')
+# R8 needs more than the upstream 1 GiB heap when producing both experimental variants.
+change('gradle.properties', 'org.gradle.jvmargs=-Xmx1024m', 'org.gradle.jvmargs=-Xmx3072m')
 # The historical private key cannot be recovered from an APK. Keep the existing
 # Compact update variant and additionally build an install-alongside variant.
 change('app/build.gradle.kts', '        create("debugNoMinify") { // for faster builds in IDE',
