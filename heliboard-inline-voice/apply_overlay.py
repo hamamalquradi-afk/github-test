@@ -212,3 +212,6 @@ print("Imported custom layout files and Android speech-recognition service remai
 # Gallery changes remain an exact, independently reviewable extension of this overlay.
 import subprocess
 subprocess.run([sys.executable, str(overlay / "themes/apply_themes.py"), str(root)], check=True)
+
+# Phase 01 identity is applied last so both existing build variants retain branding.
+subprocess.run([sys.executable, str(overlay / "branding/apply_branding.py"), str(root)], check=True)

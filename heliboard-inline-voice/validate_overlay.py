@@ -30,7 +30,7 @@ android = "{http://schemas.android.com/apk/res/android}"
 # Upstream WelcomeWizard uses applicationInfo.labelRes as a Compose stringResource ID.
 # Literal android:label resets labelRes to 0 and causes a deterministic startup crash.
 compact_name = ET.parse(app / "src/debug/res/values/compact_ime_name.xml").getroot()
-assert any(n.get("name") == "compact_ime_name" and n.text == "HeliBoard Compact"
+assert any(n.get("name") == "compact_ime_name" and n.text == "KEYNOVA SMART"
            for n in compact_name.findall("string"))
 app_label = manifest.find("application").get(android + "label")
 assert app_label == "@string/compact_ime_name", app_label
@@ -89,3 +89,39 @@ assert "scheduleRestart(NEXT_UTTERANCE_DELAY_MS)" in voice
 assert "mainHandler.removeCallbacks(pendingRestart)" in voice
 assert "ERROR_TOO_MANY_REQUESTS" in voice
 print("PASS: layout/install identifiers; deduplicated speech previews; verified cursor replacement; voice watchdog/retry state guards")
+
+# Both existing package variants must retain the approved bilingual text identity.
+for variant in ("debug", "themes"):
+    for locale, expected_name, expected_tagline in (
+        ("values", "KEYNOVA SMART", "TYPE • SPEAK • CREATE"),
+        ("values-ar", "كينوفا سمارت", "اكتب • تحدث • أبدع"),
+    ):
+        folder = app / f"src/{variant}/res/{locale}"
+        names = ET.parse(folder / "compact_ime_name.xml").getroot()
+        assert names.find("string").text == expected_name
+        assert names.find("string").get("translatable") != "false"
+        strings = {n.get("name"): n.text for n in
+                   ET.parse(folder / "keynova_branding.xml").getroot()}
+        assert strings["keynova_tagline"] == expected_tagline
+        assert strings["setup_welcome_additional_description"] == expected_tagline
+assert any(node.get(android + "label") == "@string/compact_ime_name"
+           for node in manifest.iter("service"))
+about = (app / "src/main/java/helium314/keyboard/settings/screens/AboutScreen.kt").read_text()
+assert "R.string.compact_ime_name, R.string.keynova_tagline" in about
+print("PASS: KEYNOVA SMART bilingual launcher/IME, welcome and About identity")
+# Verify both package variants consume the approved asset, not upstream launcher art.
+import hashlib
+master = overlay / 'branding/res/drawable-nodpi/keynova_master.png'
+assert master.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
+for variant in ('debug', 'themes'):
+    res = app / f'src/{variant}/res'
+    assert hashlib.sha256((res / 'drawable-nodpi/keynova_master.png').read_bytes()).digest() == hashlib.sha256(master.read_bytes()).digest()
+    for icon in ('ic_launcher', 'ic_launcher_round'):
+        adaptive = ET.parse(res / f'mipmap-anydpi-v26/{icon}.xml').getroot()
+        assert adaptive.tag == 'adaptive-icon'
+        for part in ('background', 'foreground', 'monochrome'):
+            assert adaptive.find(part).get(android + 'drawable') == '@drawable/keynova_' + part
+        legacy = ET.parse(res / f'mipmap-anydpi-v21/{icon}.xml').getroot()
+        assert legacy.get(android + 'src') == '@drawable/keynova_master'
+    assert ET.parse(res / 'drawable/keynova_monochrome.xml').getroot().tag == 'vector'
+print('PASS: approved icon master, legacy/adaptive/monochrome resources in both variants')

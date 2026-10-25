@@ -66,6 +66,25 @@ jobs:
           ./gradlew assembleDebug --stacktrace --max-workers=2
           ./gradlew assembleThemes --stacktrace --max-workers=2
           ./gradlew --stop
+      - name: Verify KEYNOVA SMART APK identity in both variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in debug themes; do
+            APK="heliboard-source/app/build/outputs/apk/$variant/HeliBoard_4.3-beta1-$variant.apk"
+            "$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging "$APK" > "/tmp/keynova-$variant-badging.txt"
+            python3 - "$variant" <<'PYCODE'
+          import pathlib, sys
+          variant = sys.argv[1]
+          text = pathlib.Path(f"/tmp/keynova-{variant}-badging.txt").read_text()
+          expected = "helium314.keyboard.compactdebug" if variant == "debug" else "helium314.keyboard.compactthemesdebug"
+          assert f"package: name='{expected}'" in text, text
+          assert "application-label:'KEYNOVA SMART'" in text, text
+          assert "application-label-ar:'كينوفا سمارت'" in text, text
+          assert "application-icon-" in text, text
+          print(f"PASS: {variant} APK package, English/Arabic identity and icon")
+          PYCODE
+          done
       - name: Retain pinned Gradle dependencies
         if: steps.pinned_gradle.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
