@@ -83,6 +83,18 @@ class ThemeGalleryTest {
         assertEquals(active, ThemeGalleryRepository.selected(context))
     }
 
+    @Test fun previewLanguageChoiceLoadsTheRequestedAlphabet() {
+        val theme = ThemeCatalog.load(context).first()
+        assertEquals("arabic", ThemePreviewView.subtype("ar").mainLayoutName)
+        assertEquals("qwerty", ThemePreviewView.subtype("en").mainLayoutName)
+        val arabic = ThemePreviewView.buildKeyboard(context, theme, "ar").sortedKeys.map { it.code }
+        val english = ThemePreviewView.buildKeyboard(context, theme, "en").sortedKeys.map { it.code }
+        assertTrue('ض'.code in arabic)
+        assertTrue('q'.code !in arabic)
+        assertTrue('q'.code in english)
+        assertTrue('ض'.code !in english)
+    }
+
     @Test fun bundledLabelsMeetNormalTextContrast() {
         ThemeCatalog.load(context).forEach { spec ->
             val colors = ThemeGalleryRepository.colors(context, spec)

@@ -4,6 +4,7 @@ package helium314.keyboard.latin.themes
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.util.LruCache
 import android.view.ContextThemeWrapper
 import android.view.View
@@ -26,6 +27,7 @@ class ThemePreviewView(context: Context) : View(context) {
     private var spec: ThemeSpec? = null
     private var language = "current"
     private var thumbnail: Bitmap? = null
+    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     fun show(theme: ThemeSpec, language: String = "current") {
         if (this.spec == theme && this.language == language) return
         this.spec = theme; this.language = language
@@ -38,7 +40,7 @@ class ThemePreviewView(context: Context) : View(context) {
         val theme = spec ?: return
         if (width < 1 || height < 1) return
         val bitmap = thumbnail ?: render(context, theme, language, width.coerceAtMost(640)).also { thumbnail = it }
-        canvas.drawBitmap(bitmap, null, android.graphics.Rect(0, 0, width, height), null)
+        canvas.drawBitmap(bitmap, null, android.graphics.Rect(0, 0, width, height), bitmapPaint)
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { thumbnail = null }
     override fun onDetachedFromWindow() { thumbnail = null; super.onDetachedFromWindow() }
@@ -56,7 +58,7 @@ class ThemePreviewView(context: Context) : View(context) {
             "ar", "en" -> RichInputMethodSubtype.get(InputMethodSubtype.InputMethodSubtypeBuilder()
                 .setSubtypeLocale(if (language == "ar") "ar" else "en_US")
                 .setSubtypeMode("keyboard").setIsAsciiCapable(language == "en")
-                .setSubtypeExtraValue("KeyboardLayoutSet=" + if (language == "ar") "arabic" else "qwerty")
+                .setSubtypeExtraValue("KeyboardLayoutSet=MAIN:" + if (language == "ar") "arabic" else "qwerty")
                 .build())
             else -> RichInputMethodManager.getInstance().currentSubtype
         }

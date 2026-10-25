@@ -82,6 +82,7 @@ class ThemeSmokeInstrumentation : Instrumentation() {
             File(output, "report-$mode.txt").writeText(log.toString())
             finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "THEME_SMOKE_PASS ($mode)\n$log") })
         } catch (error: Throwable) {
+            runCatching { screenshot("failure-$mode") }
             File(output, "report-$mode.txt").writeText(log.toString() + android.util.Log.getStackTraceString(error))
             finish(Activity.RESULT_CANCELED, Bundle().apply { putString("stream", "THEME_SMOKE_FAIL ($mode)\n" + android.util.Log.getStackTraceString(error)) })
         }
@@ -228,7 +229,8 @@ class ThemeSmokeInstrumentation : Instrumentation() {
         val point = main {
             val view = checkNotNull(KeyboardSwitcher.getInstance().mainKeyboardView)
             check(view.isShown)
-            val key = checkNotNull(view.keyboard).sortedKeys.first(predicate)
+            val keyboard = checkNotNull(view.keyboard)
+            val key = keyboard.sortedKeys.firstOrNull(predicate) ?: error("No matching key in ${keyboard.mId}; codes=${keyboard.sortedKeys.map { it.code }}")
             val location = IntArray(2); view.getLocationOnScreen(location)
             floatArrayOf(location[0] + key.x + key.width / 2f, location[1] + key.y + key.height / 2f)
         }
