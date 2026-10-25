@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_title">القوالب</string>
+    <string name="gallery_subtitle">%1$d قالبًا كاملًا · متاحة دون إنترنت</string>
+    <string name="gallery_description">تصفح قوالب لوحة المفاتيح وعاينها وطبقها</string>
+    <string name="gallery_all">جميع القوالب</string>
+    <string name="gallery_my_themes">مظاهري المحفوظة</string>
+    <string name="gallery_category_dark">داكنة</string>
+    <string name="gallery_category_light">فاتحة</string>
+    <string name="gallery_category_gold">أسود وذهبي</string>
+    <string name="gallery_category_neon">ألوان نيون</string>
+    <string name="gallery_category_gradient">تدرجات</string>
+    <string name="gallery_category_minimal">بسيطة</string>
+    <string name="gallery_category_nature">طبيعة</string>
+    <string name="gallery_category_flowers">زهور</string>
+    <string name="gallery_category_geometry">هندسية</string>
+    <string name="gallery_category_code">برمجية</string>
+    <string name="gallery_create">إنشاء مظهر</string>
+    <string name="gallery_original">استخدام إعدادات المظهر الخاصة بي</string>
+    <string name="gallery_restore_default">استعادة الافتراضي</string>
+    <string name="gallery_previous">المظهر قبل استعادة الافتراضي</string>
+    <string name="gallery_custom">مظهر شخصي</string>
+    <string name="gallery_empty">ستظهر مظاهرك المحفوظة هنا. اختر «إنشاء مظهر» لحفظ مظهر جديد.</string>
+    <string name="gallery_applied">مطبق</string>
+    <string name="gallery_apply">تطبيق</string>
+    <string name="gallery_preview">معاينة</string>
+    <string name="gallery_applied_notice">تم تطبيق المظهر</string>
+    <string name="gallery_default_notice">تمت استعادة الافتراضي مع الاحتفاظ بالمظاهر المحفوظة وإعدادات لوحة المفاتيح.</string>
+    <string name="gallery_customize">تخصيص نسخة</string>
+    <string name="gallery_name">اسم المظهر</string>
+    <string name="gallery_current_layout">التخطيط الحالي</string>
+    <string name="gallery_preview_note">تستخدم المعاينة عارض لوحة المفاتيح وإعدادات الحجم والتلميحات الحالية. اختيار اللغة يغير المعاينة فقط.</string>
+    <string name="gallery_contrast_note">يضبط تباين الحروف تلقائيًا لتسهيل القراءة. تستخدم الصور مفاتيح معتمة وطبقة خلفية. تبقى القوالب الأصلية متاحة عند حفظ نسخة.</string>
+    <string name="gallery_background">لون الخلفية</string>
+    <string name="gallery_keys">لون المفاتيح</string>
+    <string name="gallery_functional">لون مفاتيح الوظائف</string>
+    <string name="gallery_labels">لون الحروف</string>
+    <string name="gallery_accent">لون التمييز</string>
+    <string name="gallery_image">اختيار صورة للخلفية الرأسية</string>
+    <string name="gallery_image_landscape">اختيار صورة للخلفية الأفقية</string>
+    <string name="gallery_remove_image">إزالة الصور من هذه النسخة</string>
+    <string name="gallery_save_apply">حفظ وتطبيق</string>
+</resources>

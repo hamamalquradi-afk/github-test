@@ -22,7 +22,7 @@ jobs:
           git -C heliboard-source remote add origin https://github.com/HeliBorg/HeliBoard.git
           git -C heliboard-source fetch --depth 1 origin e97acdbe7ad16ef06d89d71d35ed1096e6d69f4c
           git -C heliboard-source checkout --detach FETCH_HEAD
-      - name: Apply exact overlay without touching layouts
+      - name: Apply pinned Compact overlay and offline theme gallery
         run: python3 heliboard-inline-voice/apply_overlay.py heliboard-source
       - name: Validate patched layout and install identifiers
         run: python3 heliboard-inline-voice/validate_overlay.py heliboard-source
@@ -42,6 +42,11 @@ jobs:
           if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
             ln -s android-37.0 "$ANDROID_HOME/platforms/android-37"
           fi
+      - name: Retain Compact debug signing identity for subsequent builds
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: heliboard-compact-debug-signing-v1
       - name: Build experimental debug APK
         working-directory: heliboard-source
         run: |
@@ -113,7 +118,16 @@ jobs:
           arch: x86_64
           emulator-boot-timeout: 600
           disable-animations: true
-          script: bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk /tmp/heliboard-previous/HeliBoard_4.3-beta1-debug.apk
+          script: |
+            bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk /tmp/heliboard-previous/HeliBoard_4.3-beta1-debug.apk
+            bash heliboard-inline-voice/themes/emulator-test.sh
+      - name: Upload theme gallery emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-theme-gallery-verification
+          path: heliboard-inline-voice/test-results/gallery/**
+          if-no-files-found: ignore
       - name: Upload Android emulator runtime log
         if: always()
         uses: actions/upload-artifact@v4

@@ -208,3 +208,7 @@ shutil.copy2(overlay / "VoiceInputControllerTest.java",
 print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
 print("Imported custom layout files and Android speech-recognition service remain unchanged.")
+
+# Gallery changes remain an exact, independently reviewable extension of this overlay.
+import subprocess
+subprocess.run([sys.executable, str(overlay / "themes/apply_themes.py"), str(root)], check=True)

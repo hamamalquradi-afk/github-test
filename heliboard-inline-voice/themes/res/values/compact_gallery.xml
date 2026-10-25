@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_title">Themes</string>
+    <string name="gallery_subtitle">%1$d complete themes · Available offline</string>
+    <string name="gallery_description">Browse, preview and apply complete keyboard appearances</string>
+    <string name="gallery_all">All themes</string>
+    <string name="gallery_my_themes">My appearances</string>
+    <string name="gallery_category_dark">Dark</string>
+    <string name="gallery_category_light">Light</string>
+    <string name="gallery_category_gold">Black and gold</string>
+    <string name="gallery_category_neon">Neon palettes</string>
+    <string name="gallery_category_gradient">Gradients</string>
+    <string name="gallery_category_minimal">Minimal</string>
+    <string name="gallery_category_nature">Nature</string>
+    <string name="gallery_category_flowers">Flowers</string>
+    <string name="gallery_category_geometry">Geometric</string>
+    <string name="gallery_category_code">Coding</string>
+    <string name="gallery_create">Create appearance</string>
+    <string name="gallery_original">Use my Appearance settings</string>
+    <string name="gallery_restore_default">Restore default</string>
+    <string name="gallery_previous">Appearance before restoring defaults</string>
+    <string name="gallery_custom">Custom appearance</string>
+    <string name="gallery_empty">Your saved appearances will be shown here. Choose Create appearance to save one.</string>
+    <string name="gallery_applied">Applied</string>
+    <string name="gallery_apply">Apply</string>
+    <string name="gallery_preview">Preview</string>
+    <string name="gallery_applied_notice">Appearance applied</string>
+    <string name="gallery_default_notice">Default restored. Saved appearances and keyboard settings are preserved.</string>
+    <string name="gallery_customize">Customize a copy</string>
+    <string name="gallery_name">Appearance name</string>
+    <string name="gallery_current_layout">Current layout</string>
+    <string name="gallery_preview_note">This preview uses the keyboard renderer and your current sizing and hint settings. Language choices only change this preview.</string>
+    <string name="gallery_contrast_note">Label contrast is adjusted for readability. Photos use opaque keys and a background overlay. Saved copies keep the original preset available.</string>
+    <string name="gallery_background">Background color</string>
+    <string name="gallery_keys">Key color</string>
+    <string name="gallery_functional">Function key color</string>
+    <string name="gallery_labels">Label color</string>
+    <string name="gallery_accent">Accent color</string>
+    <string name="gallery_image">Choose portrait background image</string>
+    <string name="gallery_image_landscape">Choose landscape background image</string>
+    <string name="gallery_remove_image">Remove images from this copy</string>
+    <string name="gallery_save_apply">Save and apply</string>
+</resources>
