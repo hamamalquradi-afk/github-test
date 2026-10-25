@@ -51,12 +51,13 @@ object ThemeGalleryRepository {
     fun apply(context: Context, spec: ThemeSpec) {
         spec.validate()
         require(ThemeCatalog.load(context).any { it.id == spec.id } || saved(context).any { it.id == spec.id })
-        context.prefs().edit { putString(SELECTED, spec.id) }
+        // Selection is a user transaction: complete its small disk write before reporting success.
+        context.prefs().edit(commit = true) { putString(SELECTED, spec.id) }
         reload()
     }
 
     fun useOriginal(context: Context) {
-        context.prefs().edit { remove(SELECTED); remove(HIDE_IMAGES) }
+        context.prefs().edit(commit = true) { remove(SELECTED); remove(HIDE_IMAGES) }
         reload()
     }
 
@@ -64,7 +65,7 @@ object ThemeGalleryRepository {
     fun restoreDefault(context: Context) {
         // Make the current appearance re-applicable even after restoring defaults.
         if (selected(context) == null && !context.prefs().getBoolean(HIDE_IMAGES, false)) save(context, capture(context), context.getString(helium314.keyboard.latin.R.string.gallery_previous))
-        context.prefs().edit {
+        context.prefs().edit(commit = true) {
             remove(SELECTED)
             putBoolean(HIDE_IMAGES, true)
             remove(Settings.PREF_THEME_STYLE)
@@ -84,7 +85,7 @@ object ThemeGalleryRepository {
             && !key.startsWith(Settings.PREF_USER_MORE_COLORS_PREFIX)
             && !key.startsWith(Settings.PREF_USER_ALL_COLORS_PREFIX)) return
         if (context.prefs().contains(SELECTED)) {
-            context.prefs().edit { remove(SELECTED) }
+            context.prefs().edit(commit = true) { remove(SELECTED) }
             reload()
         }
     }
@@ -93,14 +94,14 @@ object ThemeGalleryRepository {
         val cleanName = name.trim().take(60).ifBlank { context.getString(helium314.keyboard.latin.R.string.gallery_custom) }
         val spec = source.copy(id = "user_" + UUID.randomUUID().toString().replace("-", ""),
             name = cleanName, nameAr = cleanName, category = "custom").validate()
-        context.prefs().edit { putString(SAVED, json.encodeToString(saved(context) + spec)) }
+        context.prefs().edit(commit = true) { putString(SAVED, json.encodeToString(saved(context) + spec)) }
         return spec
     }
 
     fun delete(context: Context, spec: ThemeSpec) {
         require(spec.category == "custom")
         if (selected(context)?.id == spec.id) useOriginal(context)
-        context.prefs().edit { putString(SAVED, json.encodeToString(saved(context).filterNot { it.id == spec.id })) }
+        context.prefs().edit(commit = true) { putString(SAVED, json.encodeToString(saved(context).filterNot { it.id == spec.id })) }
         pruneImages(context)
     }
 

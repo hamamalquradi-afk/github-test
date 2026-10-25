@@ -134,4 +134,30 @@ file.write_text(text)
 
 # Increment only this experiment's update version; retain its application ID and providers.
 change('app/build.gradle.kts', 'versionCode = 4300', 'versionCode = 4301')
+# The historical private key cannot be recovered from an APK. Keep the existing
+# Compact update variant and additionally build an install-alongside variant.
+change('app/build.gradle.kts', '        create("debugNoMinify") { // for faster builds in IDE',
+    '        create("themes") {\n'
+    '            initWith(getByName("debug"))\n'
+    '            applicationIdSuffix = ".compactthemesdebug"\n'
+    '            signingConfig = signingConfigs.getByName("debug")\n'
+    '            matchingFallbacks += listOf("debug")\n'
+    '        }\n'
+    '        create("debugNoMinify") { // for faster builds in IDE')
+change('app/build.gradle.kts', '            if (variant.buildType == "debug") {',
+    '            if (variant.buildType == "debug" || variant.buildType == "themes") {')
+change('app/build.gradle.kts', '    buildFeatures {',
+    '    sourceSets.getByName("themes") {\n'
+    '        java.srcDir("src/debug/java")\n'
+    '        manifest.srcFile("src/debug/AndroidManifest.xml")\n'
+    '    }\n\n'
+    '    buildFeatures {')
+themes_res = root / 'app/src/themes/res'
+shutil.copytree(root / 'app/src/debug/res', themes_res, dirs_exist_ok=True)
+for resource_name, old_authority, new_authority in (
+    ('clip_provider.xml', 'helium314.keyboard.compactdebug.clipprovider', 'helium314.keyboard.compactthemesdebug.clipprovider'),
+    ('gesture_data.xml', 'helium314.keyboard.compactdebug.provider', 'helium314.keyboard.compactthemesdebug.provider'),
+    ('compact_ime_name.xml', '>HeliBoard Compact<', '>HeliBoard Compact Themes<'),
+):
+    change('app/src/themes/res/values/' + resource_name, old_authority, new_authority)
 print('Installed offline theme gallery, native renderer previews and bounded image handling')

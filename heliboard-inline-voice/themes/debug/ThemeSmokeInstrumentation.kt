@@ -38,7 +38,10 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                 flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             }
             if (mode == "persist") {
-                main { check(ThemeGalleryRepository.selected(targetContext)?.id == "gold_royal_gold") { "Selection did not survive process restart" } }
+                main { check(ThemeGalleryRepository.selected(targetContext)?.id == "gold_royal_gold") {
+                    "Selection did not survive process restart: raw=" + targetContext.prefs().getString(ThemeGalleryRepository.SELECTED, "<missing>") +
+                        ", resolved=" + ThemeGalleryRepository.selected(targetContext)?.id
+                } }
                 pass("Selected appearance survived a force-stop and fresh process")
             }
             val activity = startActivitySync(Intent(targetContext, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -58,12 +61,24 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                 clickText(activity.getString(helium314.keyboard.latin.R.string.gallery_apply))
                 waitForIdleSync()
                 pass("Actual gallery card opens a preview dialog and Apply selects the theme")
+                clickText(activity.getString(helium314.keyboard.latin.R.string.gallery_restore_default))
+                waitForIdleSync()
+                main { check(ThemeGalleryRepository.selected(targetContext) == null) }
+                pass("Visible Restore default toolbar action resets the selected appearance")
                 main { ThemeGalleryRepository.apply(targetContext, ThemeCatalog.load(targetContext).first { it.id == "gold_royal_gold" }) }
             } else if (mode == "rtl") {
                 check(activity.resources.configuration.layoutDirection == android.view.View.LAYOUT_DIRECTION_RTL)
                 pass("Arabic resources and RTL gallery displayed")
             }
             if (mode != "full") verifyLiveKeyboard()
+            waitForIdleSync()
+            main {
+                check(targetContext.prefs().getString(ThemeGalleryRepository.SELECTED, null) == "gold_royal_gold")
+                val prefsFile = File(DeviceProtectedUtils.getFilesDir(targetContext).parentFile,
+                    "shared_prefs/${targetContext.packageName}_preferences.xml")
+                check(prefsFile.readText().contains("gold_royal_gold")) { "Selected theme was not written to persistent storage" }
+            }
+            pass("Final selected theme is present in memory and on disk before process termination")
             File(output, "report-$mode.txt").writeText(log.toString())
             finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "THEME_SMOKE_PASS ($mode)\n$log") })
         } catch (error: Throwable) {
@@ -228,6 +243,8 @@ class ThemeSmokeInstrumentation : Instrumentation() {
         var node: AccessibilityNodeInfo? = nodes.firstOrNull { it.text?.toString() == text } ?: nodes.first()
         while (node != null && !node.isClickable) node = node.parent
         check(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { "Could not click: $text" }
+        waitForIdleSync()
+        SystemClock.sleep(300)
     }
 
     private fun findText(text: String): List<AccessibilityNodeInfo> {

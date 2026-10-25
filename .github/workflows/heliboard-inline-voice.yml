@@ -52,7 +52,7 @@ jobs:
         working-directory: heliboard-source
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug assembleThemes --stacktrace
       - name: Use Java 21 for Robolectric SDK 36 unit tests
         uses: actions/setup-java@v4
         with:
@@ -93,6 +93,9 @@ jobs:
           APK=heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK"
           sha256sum "$APK" > "${APK}.sha256"
+          APK=heliboard-source/app/build/outputs/apk/themes/HeliBoard_4.3-beta1-themes.apk
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK"
+          sha256sum "$APK" > "${APK}.sha256"
       - name: Save Compact debug signing identity before emulator tests
         if: steps.compact_signing.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -114,6 +117,12 @@ jobs:
           if ! gh run download 40093348555 --repo "${{ github.repository }}" --name HeliBoard-inline-voice-debug --dir /tmp/heliboard-previous; then
             echo "Previous artifact unavailable: side-by-side install test will be skipped."
           fi
+      - name: Publish install-alongside Themes APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-Compact-Themes-side-by-side
+          path: heliboard-source/app/build/outputs/apk/themes/*.apk*
+          if-no-files-found: error
       - name: Enable KVM for Android emulator
         run: |
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
@@ -129,6 +138,12 @@ jobs:
           script: |
             bash heliboard-inline-voice/smoke-test.sh heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk /tmp/heliboard-previous/HeliBoard_4.3-beta1-debug.apk
             bash heliboard-inline-voice/themes/emulator-test.sh
+            adb install -r heliboard-source/app/build/outputs/apk/themes/HeliBoard_4.3-beta1-themes.apk
+            adb shell pm path helium314.keyboard.compactdebug
+            adb shell pm path helium314.keyboard.compactthemesdebug
+            adb shell ime enable helium314.keyboard.compactthemesdebug/helium314.keyboard.latin.LatinIME
+            adb shell ime set helium314.keyboard.compactthemesdebug/helium314.keyboard.latin.LatinIME
+            bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactthemesdebug
       - name: Upload theme gallery emulator evidence
         if: always()
         uses: actions/upload-artifact@v4

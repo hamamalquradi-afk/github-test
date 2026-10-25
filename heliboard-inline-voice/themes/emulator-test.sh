@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-package=helium314.keyboard.compactdebug
+package="${1:-helium314.keyboard.compactdebug}"
 runner="$package/helium314.keyboard.latin.themes.ThemeSmokeInstrumentation"
-out=heliboard-inline-voice/test-results/gallery
+out="heliboard-inline-voice/test-results/gallery/$package"
 mkdir -p "$out"
 run_mode() {
   local mode="$1"
@@ -10,6 +10,7 @@ run_mode() {
   adb pull "/sdcard/Android/data/$package/files/gallery-smoke/." "$out/" || true
   if ! grep -Fq 'THEME_SMOKE_PASS' "$out/instrumentation-$mode.txt"; then
     adb logcat -d -t 1800 > "$out/failure-logcat-$mode.txt" || true
+    adb exec-out run-as "$package" cat "/data/user_de/0/$package/shared_prefs/${package}_preferences.xml" > "$out/failure-preferences-$mode.xml" || true
     exit 1
   fi
 }

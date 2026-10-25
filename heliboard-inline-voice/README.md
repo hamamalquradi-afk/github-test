@@ -4,6 +4,8 @@ This directory contains an overlay for the pinned upstream [HeliBoard](https://g
 
 ## What is included
 
+- An offline [80-theme gallery](themes/README.md) in Appearance → Themes, with native keyboard previews, Arabic localization, saved custom appearances and bounded personal-image handling.
+
 - Inline Android `SpeechRecognizer` invoked from the keyboard microphone key without switching input methods. First use launches the Android microphone permission screen. Recognition depends on a speech service on the device and **may send speech to a provider/cloud**; offline recognition is not guaranteed.
 - Bundled Arabic and English QWERTY layouts, a 16-symbol programming row, accessible Shift/Ctrl/Alt/Tab keys, a compact bottom row and extra Arabic marks. The comma adapts to email and URL input fields.
 - One-tap, user-controlled dictation mode. After a pause / Android recognizer result, the app automatically requests the next utterance, without requiring another tap. A second tap stops the loop; hiding the keyboard or changing the input target also stops it. Android recognition services still impose per-utterance limits and may briefly release the microphone between sessions; genuinely uninterrupted audio capture is not guaranteed.
@@ -18,7 +20,7 @@ This directory contains an overlay for the pinned upstream [HeliBoard](https://g
 3. Export/backup preferences and custom layouts before importing them into the test app. Imported custom layouts are not overwritten by the build overlay, but they are not automatically shared across different app IDs.
 4. Enable HeliBoard Compact in Android settings, select it as the current keyboard, then test Arabic/English, punctuation, Ctrl/Alt/Shift, and microphone insertion in an ordinary text field.
 
-**Debug signing caveat:** GitHub-hosted runners use temporary Android debug signing keys unless a persistent, private keystore is configured. A later APK with the same `compactdebug` application ID may therefore fail to update the earlier compact test installation due to a different signing certificate. Back up the *compact test app's* settings before uninstalling it, and never uninstall your stable keyboard as a workaround. A release/update-safe production APK requires a securely stored persistent signing key.
+**Debug signing caveat:** The gallery workflow retains its debug signing key for subsequent builds. Earlier builds used temporary runner keys, and their private keys are not present in this repository. An older Compact installation may reject an update because its certificate differs. Keep the installed keyboard and its settings; a compatible update requires its original keystore. Do not uninstall the existing keyboard as a workaround. A production release channel still requires a securely stored persistent release key.
 
 ## Automated checks
 

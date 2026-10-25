@@ -72,7 +72,8 @@ fun ThemeGalleryScreen(onClickBack: () -> Unit) {
     }
     BackHandler(onBack = onClickBack)
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.gallery_title)) }, navigationIcon = { BackButton(onClickBack) }) },
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.gallery_title)) }, navigationIcon = { BackButton(onClickBack) },
+            actions = { TextButton(onClick = { ThemeGalleryRepository.restoreDefault(context); notice = defaultMessage }) { Text(stringResource(R.string.gallery_restore_default)) } }) },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -83,7 +84,6 @@ fun ThemeGalleryScreen(onClickBack: () -> Unit) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = { editSource = Json.encodeToString(ThemeGalleryRepository.capture(context)) }) { Text(stringResource(R.string.gallery_create)) }
                 TextButton(onClick = { ThemeGalleryRepository.useOriginal(context); notice = appliedMessage }) { Text(stringResource(R.string.gallery_original)) }
-                TextButton(onClick = { ThemeGalleryRepository.restoreDefault(context); notice = defaultMessage }) { Text(stringResource(R.string.gallery_restore_default)) }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 categories.forEach { item ->
