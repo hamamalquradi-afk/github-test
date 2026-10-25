@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   build-debug:
+    # A verification-only commit consumes a previously built APK after proving
+    # its application source is unchanged; see heliboard-theme-verify.yml.
+    if: ${{ !startsWith(github.event.head_commit.message, '[verify-built]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:

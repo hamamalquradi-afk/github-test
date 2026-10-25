@@ -1,0 +1,92 @@
+name: Verify built HeliBoard Themes APKs
+on:
+  push:
+    branches: [heliboard-inline-voice-v1]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Run that built the unchanged application source
+        required: true
+        default: '40210488649'
+      source_commit:
+        description: Exact application source commit for that run
+        required: true
+        default: fd9611ffb62c7808deec7c91f4697a1862c0bbdc
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-built:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[verify-built]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_RUN: ${{ inputs.source_run_id || '40210488649' }}
+      SOURCE_COMMIT: ${{ inputs.source_commit || 'fd9611ffb62c7808deec7c91f4697a1862c0bbdc' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove built APK provenance and unchanged application source
+        shell: bash
+        run: |
+          test "$(gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN" --jq .head_sha)" = "$SOURCE_COMMIT"
+          git merge-base --is-ancestor "$SOURCE_COMMIT" HEAD
+          python3 - <<'PY'
+          import os, subprocess
+          changed = subprocess.check_output(['git', 'diff', '--name-only', os.environ['SOURCE_COMMIT'], 'HEAD'], text=True).splitlines()
+          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh'}
+          unexpected = [p for p in changed if p not in allowed and not p.endswith('.md')]
+          if unexpected:
+              raise SystemExit('Application source changed; rebuild is required: ' + repr(unexpected))
+          print('PASS: APK application source unchanged; only verification configuration differs')
+          PY
+      - name: Retrieve existing APKs and complete JVM reports
+        run: |
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name HeliBoard-inline-voice-debug --dir verified/debug
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name HeliBoard-Compact-Themes-side-by-side --dir verified/themes
+          gh run download "$SOURCE_RUN" --repo "${{ github.repository }}" --name HeliBoard-unit-test-reports --dir verified/unit
+          python3 heliboard-inline-voice/compare_test_results.py verified/unit/heliboard-baseline/app/build/test-results/testDebugUnitTest verified/unit/heliboard-source/app/build/test-results/testDebugUnitTest
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Recheck immutable APK checksums and signatures
+        shell: bash
+        run: |
+          APKSIGNER="$(rg --files "$ANDROID_HOME/build-tools" | rg '/apksigner$' | sort -V | tail -n 1)"
+          for variant in debug themes; do
+            APK="verified/$variant/HeliBoard_4.3-beta1-$variant.apk"
+            EXPECTED="$(cut -d ' ' -f 1 "$APK.sha256")"
+            test "$(sha256sum "$APK" | cut -d ' ' -f 1)" = "$EXPECTED"
+            "$APKSIGNER" verify --verbose --print-certs "$APK"
+          done
+      - name: Enable KVM
+        run: if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Complete restart, typing, shortcuts, RTL and install-alongside checks
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: |
+            adb install -r verified/debug/HeliBoard_4.3-beta1-debug.apk
+            bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactdebug remaining
+            adb install -r verified/themes/HeliBoard_4.3-beta1-themes.apk
+            adb shell pm path helium314.keyboard.compactdebug
+            adb shell pm path helium314.keyboard.compactthemesdebug
+            bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactthemesdebug
+            adb shell pm path helium314.keyboard.compactdebug
+      - name: Upload final emulator reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-final-theme-gallery-verification
+          path: heliboard-inline-voice/test-results/gallery/**
+          if-no-files-found: error

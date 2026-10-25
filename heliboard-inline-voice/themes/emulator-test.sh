@@ -4,8 +4,13 @@ package="${1:-helium314.keyboard.compactdebug}"
 runner="$package/helium314.keyboard.latin.themes.ThemeSmokeInstrumentation"
 out="heliboard-inline-voice/test-results/gallery/$package"
 mkdir -p "$out"
+adb shell settings put secure show_ime_with_hard_keyboard 1
 run_mode() {
   local mode="$1"
+  # Force-stop changes Android's selected IME. Re-select it before opening settings,
+  # otherwise the welcome wizard correctly covers the gallery during this test.
+  adb shell ime enable "$package/helium314.keyboard.latin.LatinIME"
+  adb shell ime set "$package/helium314.keyboard.latin.LatinIME"
   adb shell am instrument -w -r -e mode "$mode" "$runner" | tee "$out/instrumentation-$mode.txt"
   adb pull "/sdcard/Android/data/$package/files/gallery-smoke/." "$out/" || true
   if ! grep -Fq 'THEME_SMOKE_PASS' "$out/instrumentation-$mode.txt"; then
@@ -14,7 +19,13 @@ run_mode() {
     exit 1
   fi
 }
-run_mode full
+if [ "${2:-full}" = "remaining" ]; then
+  # The immutable source APK already passed the full catalog/image/default matrix.
+  # This mode finishes live typing and seeds the next restart check without repeating it.
+  run_mode typing
+else
+  run_mode full
+fi
 adb shell am force-stop "$package"
 run_mode persist
 adb shell am force-stop "$package"
