@@ -12,6 +12,12 @@ run_mode() {
   # otherwise the welcome wizard correctly covers the gallery during this test.
   adb shell ime enable "$package/helium314.keyboard.latin.LatinIME"
   adb shell ime set "$package/helium314.keyboard.latin.LatinIME"
+  # A previous launcher smoke opens the welcome wizard before enabling the IME.
+  # Its rememberSaveable state can survive in the activity task after force-stop.
+  # Recreate only the UI task after selecting the IME; keep all app preferences,
+  # theme files and the persistence assertion intact. The fixture above enforces
+  # emulator-only execution before these NEW_TASK | CLEAR_TASK flags are used.
+  adb shell am start -W -n "$package/helium314.keyboard.settings.SettingsActivity" -f 0x10008000
   adb shell am instrument -w -r -e mode "$mode" "$runner" | tee "$out/instrumentation-$mode.txt"
   adb pull "/sdcard/Android/data/$package/files/gallery-smoke/." "$out/" || true
   if ! grep -Fq 'THEME_SMOKE_PASS' "$out/instrumentation-$mode.txt"; then

@@ -131,6 +131,23 @@ jobs:
           else
             echo '::warning title=Signing compatibility::Previous Compact APK unavailable; historical certificate compatibility remains unverified.'
           fi
+      - name: Diagnose the previous gallery obstruction screenshot
+        if: steps.provenance.outputs.source_conclusion != 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          if ! command -v tesseract >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y tesseract-ocr >/dev/null
+          fi
+          gh run download 40234213906 --repo "${{ github.repository }}" --name HeliBoard-final-theme-gallery-verification --dir /tmp/keynova-previous-gallery
+          python3 - <<'PY'
+          import pathlib, subprocess
+          for image in pathlib.Path('/tmp/keynova-previous-gallery').rglob('failure-full.png'):
+              result = subprocess.run(['tesseract', str(image), 'stdout'], text=True, capture_output=True, check=True)
+              text = result.stdout.strip().replace('%', '%25').replace('\n', '%0A')
+              print('::notice title=Previous gallery screenshot text::' + text[:3500])
+          PY
       - name: Enable KVM
         if: steps.provenance.outputs.source_conclusion != 'success'
         run: if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
