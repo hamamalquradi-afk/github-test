@@ -17,12 +17,18 @@ jobs:
   verify-built:
     if: startsWith(github.event.head_commit.message, '[verify-built]')
     uses: ./.github/workflows/heliboard-theme-verify.yml
+    secrets:
+      KEYNOVA_SIGNING_KEYSTORE_B64: ${{ secrets.KEYNOVA_SIGNING_KEYSTORE_B64 }}
+      KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
+      KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
   build-debug:
     # A verification-only commit consumes a previously built APK after proving
     # its application source is unchanged; see heliboard-theme-verify.yml.
     if: ${{ !startsWith(github.event.head_commit.message, '[verify-built]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 55
+    env:
+      KEYNOVA_EXPECTED_CERT_SHA256: 2274da5280a2acc2456835e8d56de5d37887f6e85d5b3df2acb088428d1d6270
     steps:
       - uses: actions/checkout@v4
       - name: Checkout pinned official HeliBoard source
@@ -59,55 +65,14 @@ jobs:
       - name: Restore permanent KEYNOVA signing identity from repository secrets
         shell: bash
         env:
-          KEYSTORE_B64: ${{ secrets.KEYNOVA_SIGNING_KEYSTORE_B64 }}
+          KEYNOVA_SIGNING_KEYSTORE_B64: ${{ secrets.KEYNOVA_SIGNING_KEYSTORE_B64 }}
           KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
           KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          : "${KEYSTORE_B64:?Missing KEYNOVA_SIGNING_KEYSTORE_B64 secret}"
-          : "${KEYNOVA_SIGNING_PASSWORD:?Missing KEYNOVA_SIGNING_PASSWORD secret}"
-          : "${KEYNOVA_SIGNING_KEY_ALIAS:?Missing KEYNOVA_SIGNING_KEY_ALIAS secret}"
-          # Exported credential text files contain terminal newlines; GitHub secrets can retain them.
-          # Normalize only boundary whitespace, never echo passwords or private-key material.
-          KEYNOVA_SIGNING_PASSWORD="$(python3 -c 'import os,sys;sys.stdout.write(os.environ["KEYNOVA_SIGNING_PASSWORD"].strip())')"
-          KEYNOVA_SIGNING_KEY_ALIAS="$(python3 -c 'import os,sys;sys.stdout.write(os.environ["KEYNOVA_SIGNING_KEY_ALIAS"].strip())')"
-          export KEYNOVA_SIGNING_PASSWORD KEYNOVA_SIGNING_KEY_ALIAS
-          if [ "${#KEYNOVA_SIGNING_PASSWORD}" -lt 32 ]; then
-            echo "::error title=Invalid signing password secret::Expected a password of at least 32 characters; check KEYNOVA_SIGNING_PASSWORD."
-            exit 1
-          fi
-          if [ "$KEYNOVA_SIGNING_KEY_ALIAS" != "keynova-smart" ]; then
-            echo "::error title=Invalid signing alias::KEYNOVA_SIGNING_KEY_ALIAS must match the backed-up key alias."
-            exit 1
-          fi
-          umask 077
-          mkdir -p "$RUNNER_TEMP/keynova-signing"
-          KEYNOVA_DEBUG_KEYSTORE="$RUNNER_TEMP/keynova-signing/keynova-smart.p12"
-          if ! printf '%s' "$KEYSTORE_B64" | tr -d '\r\n\t ' | base64 --decode > "$KEYNOVA_DEBUG_KEYSTORE"; then
-            echo "::error title=Invalid signing keystore secret::KEYNOVA_SIGNING_KEYSTORE_B64 is not valid Base64."
-            exit 1
-          fi
-          if [ ! -s "$KEYNOVA_DEBUG_KEYSTORE" ]; then
-            echo "::error title=Empty signing keystore::Decoded KEYNOVA_SIGNING_KEYSTORE_B64 is empty."
-            exit 1
-          fi
-          export KEYNOVA_DEBUG_KEYSTORE
-          if ! keytool -list -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD >/dev/null 2>&1; then
-            echo "::error title=Signing password or key mismatch::PKCS12 keystore cannot be opened with KEYNOVA_SIGNING_PASSWORD. Recheck the secret against your backed-up file."
-            exit 1
-          fi
-          if ! keytool -list -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error title=Signing alias not found::Keystore opened, but KEYNOVA_SIGNING_KEY_ALIAS is not present."
-            exit 1
-          fi
-          EXPECTED_CERT_SHA256=2274da5280a2acc2456835e8d56de5d37887f6e85d5b3df2acb088428d1d6270
-          ACTUAL_CERT_SHA256="$(keytool -exportcert -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" | sha256sum | cut -d ' ' -f 1)"
-          if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "::error title=Unexpected signing certificate::Configured key does not match the permanent KEYNOVA certificate backed up by the owner."
-            exit 1
-          fi
+          export KEYNOVA_DEBUG_KEYSTORE="$RUNNER_TEMP/keynova-signing/keynova-smart.p12"
+          python3 heliboard-inline-voice/branding/prepare_signing_key.py --diagnostics-dir heliboard-inline-voice/test-results/signing
           echo "KEYNOVA_DEBUG_KEYSTORE=$KEYNOVA_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
-          echo "PASS: permanent signing key, password, alias and SHA-256 fingerprint validated."
       - name: Restore pinned Gradle dependencies
         id: pinned_gradle
         uses: actions/cache/restore@v4
@@ -125,7 +90,7 @@ jobs:
           chmod +x gradlew
           run_build() {
             set +e
-            ./gradlew "$@" --stacktrace --max-workers=2 2>&1 | tee /tmp/keynova-gradle-build.log
+            python3 ../heliboard-inline-voice/branding/signing_credentials.py ./gradlew "$@" --stacktrace --max-workers=2 2>&1 | tee /tmp/keynova-gradle-build.log
             result=${PIPESTATUS[0]}
             set -e
             if [ "$result" -ne 0 ]; then
@@ -214,30 +179,14 @@ jobs:
         env:
           KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
           KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
-        shell: bash
         run: |
-          set -euo pipefail
-          EXPECTED_CERT="$(keytool -exportcert -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" | sha256sum | cut -d ' ' -f 1)"
-          for variant in debug themes; do
-            APK="heliboard-source/app/build/outputs/apk/$variant/HeliBoard_4.3-beta1-$variant.apk"
-            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK" > "/tmp/keynova-$variant-signature.txt"
-            python3 - "$EXPECTED_CERT" "/tmp/keynova-$variant-signature.txt" <<'PY'
-          import pathlib, re, sys
-          expected, path = sys.argv[1:]
-          content = pathlib.Path(path).read_text()
-          found = re.findall(r'(?im)^.*certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$', content)
-          if not found or len(set(x.lower() for x in found)) != 1 or found[0].lower() != expected.lower():
-              raise SystemExit("APK signing certificate mismatch or ambiguous certificate metadata")
-          print("PASS: APK signature and certificate match permanent signing identity")
-          PY
-            sha256sum "$APK" > "${APK}.sha256"
-          done
-      - name: Publish built APK (if successful)
-        uses: actions/upload-artifact@v4
-        with:
-          name: HeliBoard-inline-voice-debug
-          path: heliboard-source/app/build/outputs/apk/debug/*.apk*
-          if-no-files-found: error
+          python3 heliboard-inline-voice/branding/verify_apks.py \
+            --apk-root heliboard-source/app/build/outputs/apk \
+            --keystore "$KEYNOVA_DEBUG_KEYSTORE" \
+            --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner" \
+            --aapt "$ANDROID_HOME/build-tools/37.0.0/aapt" \
+            --diagnostics-dir heliboard-inline-voice/test-results/signing \
+            --report heliboard-inline-voice/test-results/signing/verified.json
       - name: Retrieve previous working test APK for install-compatibility test
         env:
           GH_TOKEN: ${{ github.token }}
@@ -247,12 +196,6 @@ jobs:
           if ! gh run download 40093348555 --repo "${{ github.repository }}" --name HeliBoard-inline-voice-debug --dir /tmp/heliboard-previous; then
             echo "Previous artifact unavailable: side-by-side install test will be skipped."
           fi
-      - name: Publish install-alongside Themes APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: HeliBoard-Compact-Themes-side-by-side
-          path: heliboard-source/app/build/outputs/apk/themes/*.apk*
-          if-no-files-found: error
       - name: Release completed build daemons before starting Android
         working-directory: heliboard-source
         run: ./gradlew --stop
@@ -280,6 +223,39 @@ jobs:
             adb shell ime enable helium314.keyboard.compactthemesdebug/helium314.keyboard.latin.LatinIME
             adb shell ime set helium314.keyboard.compactthemesdebug/helium314.keyboard.latin.LatinIME
             bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactthemesdebug
+      - name: Prepare downloads after all automated Android gates pass
+        run: |
+          for variant in debug themes; do
+            folder="heliboard-source/app/build/outputs/apk/$variant"
+            sha256sum --check "$folder/HeliBoard_4.3-beta1-$variant.apk.sha256"
+            cp heliboard-inline-voice/test-results/signing/verified.json "$folder/signing-verification.json"
+            cp heliboard-inline-voice/branding/VOICE-ACCEPTANCE.md "$folder/VOICE-ACCEPTANCE.md"
+          done
+      - name: Publish tested Compact APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-inline-voice-debug
+          path: |
+            heliboard-source/app/build/outputs/apk/debug/*.apk*
+            heliboard-source/app/build/outputs/apk/debug/signing-verification.json
+            heliboard-source/app/build/outputs/apk/debug/VOICE-ACCEPTANCE.md
+          if-no-files-found: error
+      - name: Publish tested install-alongside Themes APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-Compact-Themes-side-by-side
+          path: |
+            heliboard-source/app/build/outputs/apk/themes/*.apk*
+            heliboard-source/app/build/outputs/apk/themes/signing-verification.json
+            heliboard-source/app/build/outputs/apk/themes/VOICE-ACCEPTANCE.md
+          if-no-files-found: error
+      - name: Upload sanitized signing diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-signing-verification
+          path: heliboard-inline-voice/test-results/signing/**
+          if-no-files-found: ignore
       - name: Upload theme gallery emulator evidence
         if: always()
         uses: actions/upload-artifact@v4

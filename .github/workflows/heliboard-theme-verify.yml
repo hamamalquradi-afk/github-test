@@ -12,6 +12,13 @@ on:
         type: string
         required: false
         default: 46e8221f057379c2753160664a33c4abf302857f
+    secrets:
+      KEYNOVA_SIGNING_KEYSTORE_B64:
+        required: false
+      KEYNOVA_SIGNING_PASSWORD:
+        required: false
+      KEYNOVA_SIGNING_KEY_ALIAS:
+        required: false
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -36,6 +43,7 @@ jobs:
       SOURCE_RUN: ${{ inputs.source_run_id || '40249783089' }}
       SOURCE_COMMIT: ${{ inputs.source_commit || '46e8221f057379c2753160664a33c4abf302857f' }}
       GH_TOKEN: ${{ github.token }}
+      KEYNOVA_EXPECTED_CERT_SHA256: 2274da5280a2acc2456835e8d56de5d37887f6e85d5b3df2acb088428d1d6270
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +63,7 @@ jobs:
           python3 - <<'PY'
           import os, subprocess
           changed = subprocess.check_output(['git', 'diff', '--name-only', os.environ['SOURCE_COMMIT'], 'HEAD'], text=True).splitlines()
-          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py', 'heliboard-inline-voice/themes/test_prepare_emulator_fixture.py', 'heliboard-inline-voice/branding/verify-emulator.sh', 'heliboard-inline-voice/branding/tests/test_ci_diagnostics.py'}
+          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py', 'heliboard-inline-voice/themes/test_prepare_emulator_fixture.py', 'heliboard-inline-voice/branding/verify-emulator.sh', 'heliboard-inline-voice/branding/tests/test_ci_diagnostics.py', 'heliboard-inline-voice/branding/verify_apks.py', 'heliboard-inline-voice/branding/prepare_signing_key.py', 'heliboard-inline-voice/branding/signing_credentials.py', 'heliboard-inline-voice/branding/tests/test_verify_apks.py', 'heliboard-inline-voice/branding/tests/test_signing_credentials.py'}
           unexpected = [p for p in changed if p not in allowed and not p.endswith('.md')]
           if unexpected:
               raise SystemExit('Application source changed; rebuild is required: ' + repr(unexpected))
@@ -97,18 +105,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Recheck immutable APK checksums and signatures
-        shell: bash
+      - name: Restore permanent signing identity
+        env:
+          KEYNOVA_SIGNING_KEYSTORE_B64: ${{ secrets.KEYNOVA_SIGNING_KEYSTORE_B64 }}
+          KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
+          KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
+        run: |
+          export KEYNOVA_DEBUG_KEYSTORE="$RUNNER_TEMP/keynova-signing/keynova-smart.p12"
+          python3 heliboard-inline-voice/branding/prepare_signing_key.py --diagnostics-dir heliboard-inline-voice/test-results/signing
+          echo "KEYNOVA_DEBUG_KEYSTORE=$KEYNOVA_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
+      - name: Recheck immutable APK checksums and signing identities
+        env:
+          KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
+          KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
         run: |
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -x "$APKSIGNER"
-          for variant in debug themes; do
-            APK="verified/$variant/HeliBoard_4.3-beta1-$variant.apk"
-            EXPECTED="$(cut -d ' ' -f 1 "$APK.sha256")"
-            test "$(sha256sum "$APK" | cut -d ' ' -f 1)" = "$EXPECTED"
-            "$APKSIGNER" verify --verbose --print-certs "$APK"
-            echo "::notice title=Verified APK SHA-256::$variant $EXPECTED"
-          done
+          python3 heliboard-inline-voice/branding/verify_apks.py \
+            --apk-root verified --keystore "$KEYNOVA_DEBUG_KEYSTORE" \
+            --apksigner "$APKSIGNER" --aapt "$(dirname "$APKSIGNER")/aapt" \
+            --check-checksums --source-commit "$SOURCE_COMMIT" \
+            --diagnostics-dir heliboard-inline-voice/test-results/signing \
+            --report verified/signing.json
       - name: Compare signing identity with the previous Compact checkpoint
         # Historical compatibility is separate from the required current APK
         # signature/checksum gate above; disclose failures without hiding smoke tests.
@@ -123,18 +140,11 @@ jobs:
           if gh run download 40225011537 --repo "${{ github.repository }}" --name HeliBoard-inline-voice-debug --dir /tmp/keynova-previous-identity; then
             export APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
             python3 - <<'PY'
-          import pathlib, os, re, subprocess
+          import pathlib, os, sys
+          sys.path.insert(0, 'heliboard-inline-voice/branding')
+          from verify_apks import verified_certificate
           def certificate(path):
-              result = subprocess.run([os.environ['APKSIGNER'], 'verify', '--print-certs', str(path)], text=True, capture_output=True)
-              output = result.stdout
-              if result.returncode:
-                  print('::error title=Historical certificate verification::' + str(path) + ': ' + (result.stderr or result.stdout).replace('%', '%25').replace('\n', '%0A')[:2400])
-                  raise RuntimeError('Historical certificate could not be verified')
-              found = set(re.findall(r'certificate SHA-256 digest:\s*([a-fA-F0-9]{64})', output))
-              if len(found) != 1:
-                  print('::error title=Certificate metadata::' + output.replace('%', '%25').replace('\n', '%0A')[:2600])
-                  raise RuntimeError('Cannot establish one signing certificate')
-              return next(iter(found)).lower()
+              return verified_certificate(os.environ['APKSIGNER'], path, require_modern_scheme=False)[0]
           previous = certificate(pathlib.Path('/tmp/keynova-previous-identity/HeliBoard_4.3-beta1-debug.apk'))
           current = certificate(pathlib.Path('verified/debug/HeliBoard_4.3-beta1-debug.apk'))
           if previous == current:
@@ -210,6 +220,13 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           script: bash heliboard-inline-voice/branding/verify-emulator.sh
+      - name: Upload sanitized signing diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeliBoard-signing-verification
+          path: heliboard-inline-voice/test-results/signing/**
+          if-no-files-found: ignore
       - name: Upload final emulator reports and screenshots
         if: always() && steps.provenance.outputs.source_conclusion != 'success'
         uses: actions/upload-artifact@v4
