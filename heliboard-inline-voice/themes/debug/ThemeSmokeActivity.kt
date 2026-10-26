@@ -15,6 +15,11 @@ class ThemeSmokeActivity : Activity() {
         super.onCreate(state)
         editor = RecordingEditor(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            // Landscape Android IMEs may enter fullscreen extract-edit mode.
+            // That moves real key events away from this RecordingEditor and
+            // makes shortcut comparisons depend on extract-view focus.
+            // Test on the real host field in both orientations instead.
+            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
             hint = "Gallery keyboard smoke test"
             setSingleLine(false)
             gravity = android.view.Gravity.TOP
