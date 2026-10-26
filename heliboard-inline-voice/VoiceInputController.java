@@ -45,6 +45,10 @@ import java.util.Locale;
  */
 final class VoiceInputController {
     private static final long NEXT_UTTERANCE_DELAY_MS = 600L;
+    // Endpointer hints for a dictated sentence with natural pauses. The service
+    // may ignore them; automatic resumption after onResults/onError remains on.
+    private static final int POSSIBLY_COMPLETE_SILENCE_MS = 3000;
+    private static final int COMPLETE_SILENCE_MS = 5500;
     private static final long SILENCE_RETRY_DELAY_MS = 1100L;
     private static final long READY_TIMEOUT_MS = 12000L;
     private static final long QUIET_TIMEOUT_MS = 24000L;
@@ -202,16 +206,8 @@ final class VoiceInputController {
                 }
             });
 
-            final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-            intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-            if (selectedLocale != null) {
-                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLocale.toLanguageTag());
-            }
             armWatchdog(session, READY_TIMEOUT_MS);
-            next.startListening(intent);
+            next.startListening(createDictationIntent(selectedLocale));
         } catch (RuntimeException e) {
             endSession();
             if (++consecutiveEngineErrors >= MAX_ENGINE_ERRORS) {
@@ -220,6 +216,29 @@ final class VoiceInputController {
                 scheduleRestart(SILENCE_RETRY_DELAY_MS * consecutiveEngineErrors);
             }
         }
+    }
+
+    /**
+     * Ask the installed recognizer to tolerate pauses in continuous dictation.
+     * Android recognizers decide their own endpointing and can ignore these
+     * extras. Do not set minimum utterance length: that would delay short
+     * phrases and their final transcripts. Keep the result/error restart loop
+     * as a fallback when a provider closes the microphone early.
+     */
+    static Intent createDictationIntent(@Nullable Locale locale) {
+        final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                POSSIBLY_COMPLETE_SILENCE_MS);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                COMPLETE_SILENCE_MS);
+        if (locale != null) {
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag());
+        }
+        return intent;
     }
 
     private boolean isCurrentSession(int session) {

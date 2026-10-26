@@ -1,5 +1,7 @@
 package helium314.keyboard.latin;
 
+import android.content.Intent;
+import android.speech.RecognizerIntent;
 import android.text.InputType;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -14,6 +16,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Locale;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -69,6 +72,30 @@ public class VoiceInputControllerTest {
 
     private void partial(String value) throws Exception { call("showInterimResult", String.class, value); }
     private void finish(String value) throws Exception { call("commitFinalResult", String.class, value); }
+
+    @Test public void recognitionRequestsLongerSilenceWithoutDelayingShortPhrases() {
+        Intent intent = VoiceInputController.createDictationIntent(Locale.ENGLISH);
+        assertEquals(RecognizerIntent.ACTION_RECOGNIZE_SPEECH, intent.getAction());
+        assertEquals(RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL));
+        assertTrue(intent.getBooleanExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false));
+        assertEquals(1, intent.getIntExtra(RecognizerIntent.EXTRA_MAX_RESULTS, -1));
+        assertEquals(3000, intent.getIntExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, -1));
+        assertEquals(5500, intent.getIntExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, -1));
+        assertFalse(intent.hasExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS));
+        assertEquals("en", intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE));
+    }
+
+    @Test public void recognitionPreservesArabicAndDefaultLanguageSelection() {
+        Intent arabic = VoiceInputController.createDictationIntent(new Locale("ar"));
+        assertEquals("ar", arabic.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE));
+        Intent systemDefault = VoiceInputController.createDictationIntent(null);
+        assertFalse(systemDefault.hasExtra(RecognizerIntent.EXTRA_LANGUAGE));
+        assertEquals(5500, systemDefault.getIntExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, -1));
+    }
 
     @Test public void cumulativeArabicReplacesPreviewExactlyOnce() throws Exception {
         partial("لكنها"); partial("لكنها في"); partial("لكنها في بعض الأوقات");
