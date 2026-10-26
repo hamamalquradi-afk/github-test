@@ -30,6 +30,24 @@ for line in lines[start:start + 18]:
     print('::error title=Keyboard emulator failure::' + line[:1800])
 PYCODE
     adb logcat -d -t 1800 > "$out/failure-logcat-$mode.txt" || true
+    # Print the Android exception as a workflow annotation, not only as a ZIP
+    # artifact. Instrumentation startup crashes report no stream= exception.
+    python3 - "$out/failure-logcat-$mode.txt" "$package" <<'PYCRASH'
+import pathlib, sys
+lines = pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines()
+package = sys.argv[2]
+starts = [i for i, line in enumerate(lines)
+          if 'FATAL EXCEPTION:' in line and
+          any(('Process: ' + package) in next_line for next_line in lines[i:i+5])]
+if starts:
+    for line in lines[starts[-1]:starts[-1]+24]:
+        if 'AndroidRuntime:' not in line:
+            continue
+        message = line.split('AndroidRuntime:', 1)[-1].strip()
+        if message:
+            message = message.replace('%', '%25').replace('\\r', '%0D').replace('\\n', '%0A')
+            print('::error title=Android instrumentation crash::' + message[:1700])
+PYCRASH
     adb exec-out run-as "$package" cat "/data/user_de/0/$package/shared_prefs/${package}_preferences.xml" > "$out/failure-preferences-$mode.xml" || true
     exit 1
   fi

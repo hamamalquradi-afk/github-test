@@ -136,3 +136,21 @@ for variant in ('debug', 'themes'):
                 assert name not in seen, f'Duplicate {variant}/{folder.name}/{name}: {seen.get(name)} and {resource_file}'
                 seen[name] = resource_file
 print('PASS: no duplicate string resources within either variant/locale')
+
+# Instrumentation must be compiled from each build type's conventional source
+# directory. Sharing debug/java via Java-only sourceSets silently omitted
+# Kotlin classes from the minified themes DEX (observed Android crash in run 73).
+for variant in ('debug', 'themes'):
+    variant_dir = app / f'src/{variant}'
+    test_manifest = ET.parse(variant_dir / 'AndroidManifest.xml').getroot()
+    declared = test_manifest.find('instrumentation')
+    assert declared is not None
+    assert declared.get(android + 'name') == 'helium314.keyboard.latin.themes.ThemeSmokeInstrumentation'
+    assert declared.get(android + 'targetPackage') == '${applicationId}'
+    assert any(activity.get(android + 'name') == 'helium314.keyboard.latin.themes.ThemeSmokeActivity'
+               for activity in test_manifest.iter('activity'))
+    for name in ('ThemeSmokeInstrumentation.kt', 'ThemeSmokeActivity.kt'):
+        source = variant_dir / 'java/helium314/keyboard/latin/themes' / name
+        assert source.read_bytes() == (overlay / 'themes/debug' / name).read_bytes(), (variant, name)
+assert 'java.srcDir("src/debug/java")' not in gradle
+print('PASS: both minified variants package their own Kotlin instrumentation and manifest')

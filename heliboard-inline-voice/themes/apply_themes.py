@@ -26,11 +26,16 @@ for source in (overlay / 'res').rglob('*.xml'):
 shutil.copy2(overlay / 'assets/compact_themes.json', root / 'app/src/main/assets/compact_themes.json')
 for source in (overlay / 'tests').glob('*.kt'):
     shutil.copy2(source, root / 'app/src/test/java/helium314/keyboard' / source.name)
-for source in (overlay / 'debug').glob('*.kt'):
-    dest = root / 'app/src/debug/java/helium314/keyboard/latin/themes' / source.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, dest)
-shutil.copy2(overlay / 'debug/AndroidManifest.xml', root / 'app/src/debug/AndroidManifest.xml')
+# Each minified build type must compile its own instrumentation Kotlin classes.
+# Merely adding debug/java to the themes Java source set left the test
+# instrumentation declared in the manifest but missing from the themes DEX.
+for variant in ('debug', 'themes'):
+    for source in (overlay / 'debug').glob('*.kt'):
+        dest = root / f'app/src/{variant}/java/helium314/keyboard/latin/themes' / source.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+    shutil.copy2(overlay / 'debug/AndroidManifest.xml',
+                 root / f'app/src/{variant}/AndroidManifest.xml')
 with (root / 'app/proguard-rules.pro').open('a') as rules:
     rules.write('\n-keep class helium314.keyboard.latin.themes.ThemeSmokeInstrumentation { *; }\n'
                 '-keep class helium314.keyboard.latin.themes.ThemeSmokeActivity { *; }\n'
@@ -148,12 +153,6 @@ change('app/build.gradle.kts', '        create("debugNoMinify") { // for faster 
     '        create("debugNoMinify") { // for faster builds in IDE')
 change('app/build.gradle.kts', '            if (variant.buildType == "debug") {',
     '            if (variant.buildType == "debug" || variant.buildType == "themes") {')
-change('app/build.gradle.kts', '    buildFeatures {',
-    '    sourceSets.getByName("themes") {\n'
-    '        java.srcDir("src/debug/java")\n'
-    '        manifest.srcFile("src/debug/AndroidManifest.xml")\n'
-    '    }\n\n'
-    '    buildFeatures {')
 themes_res = root / 'app/src/themes/res'
 shutil.copytree(root / 'app/src/debug/res', themes_res, dirs_exist_ok=True)
 for resource_name, old_authority, new_authority in (
