@@ -169,6 +169,8 @@ g = build.read_text(encoding="utf-8")
 g = replace_once(g, "    buildTypes {",
     '    signingConfigs.getByName("debug") {\n'
     '        System.getenv("KEYNOVA_DEBUG_KEYSTORE")?.let { storeFile = file(it) }\n'
+    '        System.getenv("KEYNOVA_SIGNING_PASSWORD")?.let { storePassword = it; keyPassword = it }\n'
+    '        System.getenv("KEYNOVA_SIGNING_KEY_ALIAS")?.let { keyAlias = it }\n'
     '    }\n\n    buildTypes {', "explicit optional CI signing file")
 g = replace_once(g,
     "            isMinifyEnabled = true\n"
