@@ -51,19 +51,22 @@ class ThemeSmokeInstrumentation : Instrumentation() {
             // The persistence failure screenshot confirmed exactly this state.
             // Follow the REAL wizard's Configure action only after verifying the
             // system-selected IME, rather than clearing preferences or hiding tests.
-            if (mode != "full") {
-                val configure = activity.getString(helium314.keyboard.latin.R.string.setup_step3_action)
-                if (findText(configure, 1200).isNotEmpty()) {
-                    val selectedIme = android.provider.Settings.Secure.getString(
-                        targetContext.contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)
-                    val expectedIme = "${targetContext.packageName}/${LatinIME::class.java.name}"
-                    check(selectedIme == expectedIme) {
-                        "Welcome wizard requires setup; selectedIme=$selectedIme, expected=$expectedIme"
-                    }
-                    screenshot("welcome-before-gallery-$mode")
-                    clickText(configure)
-                    pass("Closed visible setup wizard via Configure after confirming selected IME")
+            // Both cold-start (full) and restart (persist/rtl) tests can
+            // display the remembered welcome wizard above the real settings
+            // screen, even after the emulator has selected this IME. Close it
+            // through its actual visible Configure action, never by clearing
+            // persistent app data or skipping the accessibility assertion.
+            val configure = activity.getString(helium314.keyboard.latin.R.string.setup_step3_action)
+            if (findText(configure, 1200).isNotEmpty()) {
+                val selectedIme = android.provider.Settings.Secure.getString(
+                    targetContext.contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)
+                val expectedIme = "${targetContext.packageName}/${LatinIME::class.java.name}"
+                check(selectedIme == expectedIme) {
+                    "Welcome wizard requires setup; selectedIme=$selectedIme, expected=$expectedIme"
                 }
+                screenshot("welcome-before-gallery-$mode")
+                clickText(configure)
+                pass("Closed visible setup wizard via Configure after confirming selected IME")
             }
             // Exercise the same visible navigation path as a real user.
             // The upstream SettingsDestination.navigateTo flow is a short-lived
