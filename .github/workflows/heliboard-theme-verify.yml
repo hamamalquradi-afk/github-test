@@ -7,11 +7,11 @@ on:
       source_run_id:
         description: Run that built the unchanged application source
         required: true
-        default: '40236691889'
+        default: '40249783089'
       source_commit:
         description: Exact application source commit for that run
         required: true
-        default: 9f0f98a20829737dfa077cff59da53120fe91d22
+        default: 46e8221f057379c2753160664a33c4abf302857f
 
 permissions:
   contents: read
@@ -23,8 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      SOURCE_RUN: ${{ inputs.source_run_id || '40236691889' }}
-      SOURCE_COMMIT: ${{ inputs.source_commit || '9f0f98a20829737dfa077cff59da53120fe91d22' }}
+      SOURCE_RUN: ${{ inputs.source_run_id || '40249783089' }}
+      SOURCE_COMMIT: ${{ inputs.source_commit || '46e8221f057379c2753160664a33c4abf302857f' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4

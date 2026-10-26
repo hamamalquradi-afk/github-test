@@ -24,13 +24,23 @@ if b"1" not in emulator:
 adb("shell", "am", "force-stop", package, check=True)
 directory = f"/data/user_de/0/{package}/shared_prefs"
 path = f"{directory}/{package}_preferences.xml"
-existing = adb("exec-out", "run-as", package, "cat", path)
-if existing.returncode == 0:
-    root = ET.fromstring(existing.stdout)
-elif b"No such file" in existing.stderr:
+# On a freshly installed second variant, preferences may not have been
+# created yet. Android's run-as/cat can report a missing file on stdout
+# while returning 0, so inspect existence explicitly before parsing XML.
+# Never overwrite an existing preference file just because it is malformed.
+presence = adb("exec-out", "run-as", package, "test", "-f", path)
+if presence.returncode == 0:
+    existing = adb("exec-out", "run-as", package, "cat", path, check=True)
+    try:
+        root = ET.fromstring(existing.stdout)
+    except ET.ParseError as exc:
+        raise SystemExit(f"Existing preferences are not valid XML for {package}: {exc}") from exc
+    if root.tag != "map":
+        raise SystemExit(f"Unexpected preferences root for {package}: {root.tag}")
+elif presence.returncode == 1 and not presence.stderr.strip():
     root = ET.Element("map")
 else:
-    raise SystemExit(existing.stderr.decode(errors="replace"))
+    raise SystemExit(f"Cannot inspect {package} preferences: " + presence.stderr.decode(errors="replace"))
 
 for key, value in (
     ("enabled_subtypes", "ar§KeyboardLayoutSet=MAIN:arabic;en-US§KeyboardLayoutSet=MAIN:qwerty"),
