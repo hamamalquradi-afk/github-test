@@ -217,13 +217,27 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                 }
             }
             waitForIdleSync()
-            // The IME or text-selection UI may temporarily own window focus.
-            // Keep the original visibility precondition; the actual editor-text
-            // and key-event assertions below verify that input reaches the host.
-            if (main { runCatching { KeyboardSwitcher.getInstance().mainKeyboardView.isShown }.getOrDefault(false) }) return
+            // Android's clipboard/text-selection UI can steal the editor's
+            // window focus while keeping the IME visibly on screen. Sending
+            // a physical Ctrl+V touch in that state tests the overlay instead
+            // of the RecordingEditor. Require BOTH the editor and the real
+            // keyboard to be ready before each injected key; never fake input.
+            val ready = main {
+                val editor = host.editor
+                editor.hasWindowFocus() && editor.hasFocus() &&
+                    runCatching { KeyboardSwitcher.getInstance().mainKeyboardView.isShown }.getOrDefault(false)
+            }
+            if (ready) return
             SystemClock.sleep(150)
         } while (SystemClock.uptimeMillis() < deadline)
-        error("Keyboard readiness timed out: visible=false, editorWindowFocus=" + main { host.editor.hasWindowFocus() } +
+        val state = main {
+            "editorWindowFocus=" + host.editor.hasWindowFocus() +
+                ", editorHasFocus=" + host.editor.hasFocus() +
+                ", keyboardShown=" + runCatching {
+                    KeyboardSwitcher.getInstance().mainKeyboardView.isShown
+                }.getOrDefault(false)
+        }
+        error("Keyboard readiness timed out: " + state +
             ", selectedIme=" + android.provider.Settings.Secure.getString(targetContext.contentResolver, "default_input_method"))
     }
 
