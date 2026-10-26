@@ -184,61 +184,80 @@ class ThemeSmokeInstrumentation : Instrumentation() {
         pass("Image import, bounded decoding, save/reapply, missing/corrupt fallback and default restoration passed")
     }
 
-    private fun awaitEditorKeyboard(host: ThemeSmokeActivity) {
+    private fun currentIme(): LatinIME {
+        val field = KeyboardSwitcher::class.java.getDeclaredField("mLatinIME").apply { isAccessible = true }
+        return field.get(KeyboardSwitcher.getInstance()) as LatinIME
+    }
+
+    private data class KeyboardFrame(val view: MainKeyboardView, val keyboard: Keyboard,
+        val x: Int, val y: Int, val width: Int, val height: Int, val imeInset: Int)
+
+    /** Called on the UI thread; a visible view alone can still be sliding into place. */
+    private fun keyboardFrame(host: ThemeSmokeActivity): KeyboardFrame? {
+        val editor = host.editor
+        val manager = host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        val ime = currentIme()
+        val view = KeyboardSwitcher.getInstance().mainKeyboardView ?: return null
+        val keyboard = view.keyboard ?: return null
+        val insets = editor.rootWindowInsets ?: return null
+        if (!editor.hasWindowFocus() || !editor.hasFocus() || !manager.isActive(editor) ||
+            !ime.currentInputStarted || !ime.isInputViewShown || ime.currentInputConnection == null ||
+            ime.currentInputEditorInfo?.fieldId != editor.id ||
+            host.imeAnimating || !insets.isVisible(android.view.WindowInsets.Type.ime()) ||
+            !view.isShown || !view.isAttachedToWindow || !view.isLaidOut || view.isLayoutRequested) return null
+        val location = IntArray(2); view.getLocationOnScreen(location)
+        return KeyboardFrame(view, keyboard, location[0], location[1], view.width, view.height,
+            insets.getInsets(android.view.WindowInsets.Type.ime()).bottom)
+    }
+
+    private fun awaitEditorKeyboard(host: ThemeSmokeActivity, expectedLetter: Int? = null): KeyboardFrame {
         val start = SystemClock.uptimeMillis()
         val deadline = start + 10000
         var restoredForeground = false
-        var explicitlyRequestedIme = false
+        var requestedIme = false
+        var forcedIme = false
+        var previous: KeyboardFrame? = null
         do {
-            main {
+            waitForIdleSync()
+            val frame = main { keyboardFrame(host)?.takeIf { frame ->
+                expectedLetter == null || frame.keyboard.sortedKeys.any { it.code == expectedLetter || it.code == expectedLetter - 32 }
+            } }
+            // The failed RTL run tapped the editor during the IME slide. Require
+            // completed insets animation AND unchanged real screen coordinates.
+            if (frame != null && frame == previous) return frame
+            previous = frame
+            if (frame == null) main {
                 if (host.editor.hasWindowFocus()) {
                     host.editor.requestFocus()
-                    val inputManager = host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                    inputManager.showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-                    if (!explicitlyRequestedIme && SystemClock.uptimeMillis() - start > 1200) {
-                        // After Ctrl+C Android can hide the IME while the editor
-                        // still owns focus. In this DEBUG-ONLY smoke target,
-                        // explicitly request its keyboard rather than accepting
-                        // an absent IME as a successful shortcut test.
+                    val manager = host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    if (!requestedIme) {
+                        manager.showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                        requestedIme = true
+                    } else if (!forcedIme && SystemClock.uptimeMillis() - start > 1200) {
                         host.editor.windowInsetsController?.show(android.view.WindowInsets.Type.ime())
-                        inputManager.showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
-                        explicitlyRequestedIme = true
-                        log.append("Explicitly requested IME after editor retained focus\\n")
+                        manager.showSoftInput(host.editor, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+                        forcedIme = true
+                        log.append("Explicitly requested IME after editor retained focus\n")
                     }
                 } else if (!restoredForeground && SystemClock.uptimeMillis() - start > 1200) {
-                    // Android's text-selection/clipboard overlay can move this
-                    // debug editor task behind another window after Ctrl+C.
-                    // Bring the EXISTING test activity forward without recreating
-                    // it or clearing editor text; never bypass actual key presses.
                     host.startActivity(Intent(host, ThemeSmokeActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
                     restoredForeground = true
-                    log.append("Reordered existing smoke editor to restore window focus\\n")
+                    log.append("Reordered existing smoke editor to restore window focus\n")
                 }
             }
-            waitForIdleSync()
-            // Android's clipboard/text-selection UI can steal the editor's
-            // window focus while keeping the IME visibly on screen. Sending
-            // a physical Ctrl+V touch in that state tests the overlay instead
-            // of the RecordingEditor. Require BOTH the editor and the real
-            // keyboard to be ready before each injected key; never fake input.
-            val ready = main {
-                val editor = host.editor
-                editor.hasWindowFocus() && editor.hasFocus() &&
-                    runCatching { KeyboardSwitcher.getInstance().mainKeyboardView.isShown }.getOrDefault(false)
-            }
-            if (ready) return
-            SystemClock.sleep(150)
+            SystemClock.sleep(100)
         } while (SystemClock.uptimeMillis() < deadline)
         val state = main {
-            "editorWindowFocus=" + host.editor.hasWindowFocus() +
-                ", editorHasFocus=" + host.editor.hasFocus() +
-                ", keyboardShown=" + runCatching {
-                    KeyboardSwitcher.getInstance().mainKeyboardView.isShown
-                }.getOrDefault(false)
+            val view = KeyboardSwitcher.getInstance().mainKeyboardView
+            val ime = currentIme()
+            "editorWindowFocus=${host.editor.hasWindowFocus()}, editorHasFocus=${host.editor.hasFocus()}, " +
+                "imeAnimating=${host.imeAnimating}, imeVisible=${host.editor.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime())}, " +
+                "inputStarted=${ime.currentInputStarted}, inputViewShown=${ime.isInputViewShown}, " +
+                "fieldId=${ime.currentInputEditorInfo?.fieldId}/${host.editor.id}, " +
+                "viewShown=${view?.isShown}, layoutPending=${view?.isLayoutRequested}, frame=${keyboardFrame(host)}"
         }
-        error("Keyboard readiness timed out: " + state +
-            ", selectedIme=" + android.provider.Settings.Secure.getString(targetContext.contentResolver, "default_input_method"))
+        error("Keyboard readiness timed out: $state")
     }
 
     private fun verifyLiveKeyboard() {
@@ -284,10 +303,10 @@ class ThemeSmokeInstrumentation : Instrumentation() {
                     if (ready) break
                     SystemClock.sleep(150)
                 } while (SystemClock.uptimeMillis() < deadline)
-                tapKey { it.code == code || language == "en" && it.code == 'Q'.code }
+                tapKey(host) { it.code == code || language == "en" && it.code == 'Q'.code }
                 waitForIdleSync(); SystemClock.sleep(150)
                 check(main { host.editor.text.toString().lowercase().contains(if (language == "en") "q" else "ض") }) { "Real IME did not type $language / wide=$wide" }
-                tapKey { it.code == '('.code }
+                tapKey(host) { it.code == '('.code }
                 waitForIdleSync()
                 check(main { host.editor.text.toString().contains("(") })
                 screenshot("keyboard-$mode-$language-${if (wide) "landscape" else "portrait"}")
@@ -304,70 +323,95 @@ class ThemeSmokeInstrumentation : Instrumentation() {
             (field.get(KeyboardSwitcher.getInstance()) as LatinIME).switchToSubtype(ThemePreviewView.subtype("en").rawSubtype)
             ThemeGalleryRepository.useOriginal(targetContext)
         }
-        waitForIdleSync(); SystemClock.sleep(500)
+        waitForIdleSync()
         val nativeShortcuts = shortcuts(host)
         main { ThemeGalleryRepository.apply(targetContext, ThemeCatalog.load(targetContext).first { it.id == "gold_royal_gold" }) }
-        waitForIdleSync(); SystemClock.sleep(500)
+        waitForIdleSync()
         val themedShortcuts = shortcuts(host)
-        check(nativeShortcuts == themedShortcuts) { "Shortcut behavior changed: native=$nativeShortcuts gallery=$themedShortcuts" }
-        nativeShortcuts.filterValues { !it }.forEach { (name, _) -> log.append("BASELINE LIMITATION: native ").append(name).append(" was not observed in this editor; unchanged with gallery\n") }
+        check(nativeShortcuts.values.all { it } && themedShortcuts.values.all { it } && nativeShortcuts == themedShortcuts) { "Shortcut behavior changed: native=$nativeShortcuts gallery=$themedShortcuts" }
         pass("Actual Ctrl+A/C/V, Alt, Tab and Shift interactions match the native appearance baseline: $themedShortcuts")
     }
 
     private fun shortcuts(host: ThemeSmokeActivity): Map<String, Boolean> {
-        fun tap(code: Int) { awaitEditorKeyboard(host); tapKey { it.code == code || code in 'a'.code..'z'.code && it.code == code - 32 }; waitForIdleSync(); SystemClock.sleep(150) }
-        main { host.editor.setText("abc"); host.editor.setSelection(3); host.editor.keyEvents.clear() }
-        waitForIdleSync(); SystemClock.sleep(200)
-        tap(KeyCode.CTRL); tap('a'.code)
-        val selects = main { host.editor.selectionStart == 0 && host.editor.selectionEnd == 3 }
-        tap(KeyCode.CTRL); tap('c'.code)
-        val copied = main { (host.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip?.getItemAt(0)?.coerceToText(host)?.toString() == "abc" }
-        main { host.editor.setSelection(host.editor.text.length) }
-        tap(KeyCode.CTRL); tap('v'.code)
-        // Clipboard delivery and InputConnection text updates are asynchronous
-        // on some Android emulators. Keep the real touch-injected Ctrl+V and
-        // exact editor assertion, but allow bounded completion before failing.
-        val pasteDeadline = SystemClock.uptimeMillis() + 2500
-        var pasted = false
-        do {
-            waitForIdleSync()
-            pasted = main { host.editor.text.toString() == "abcabc" }
-            if (pasted) break
-            SystemClock.sleep(100)
-        } while (SystemClock.uptimeMillis() < pasteDeadline)
-        if (!pasted) {
-            val editorState = main {
-                "text=" + host.editor.text.toString() +
-                    ", selection=" + host.editor.selectionStart + ".." + host.editor.selectionEnd +
-                    ", windowFocus=" + host.editor.hasWindowFocus() +
-                    ", inputFocus=" + host.editor.hasFocus()
+        awaitEditorKeyboard(host, 'q'.code)
+        fun tap(code: Int) { tapKey(host) { it.code == code || code in 'a'.code..'z'.code && it.code == code - 32 }; waitForIdleSync(); SystemClock.sleep(150) }
+        val clipboard = host.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val previousClip = main { clipboard.primaryClip }
+        try {
+            main {
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Smoke sentinel", "not-the-copied-text"))
+                host.editor.setText("abc"); host.editor.setSelection(3); host.editor.keyEvents.clear()
             }
-            val clipboardState = main {
-                (host.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                    .primaryClip?.getItemAt(0)?.coerceToText(host)?.toString()
+            fun observedCtrl(key: Int) = host.editor.keyEvents.any {
+                it.first == key && it.second and android.view.KeyEvent.META_CTRL_ON != 0
             }
-            log.append("Ctrl+V failed after bounded wait: ")
-                .append(editorState).append(", clipboard=").append(clipboardState).append(System.lineSeparator())
+            waitForIdleSync(); SystemClock.sleep(200)
+            tap(KeyCode.CTRL); tap('a'.code)
+            val selects = main { host.editor.selectionStart == 0 && host.editor.selectionEnd == 3 &&
+                host.editor.text.toString() == "abc" && observedCtrl(android.view.KeyEvent.KEYCODE_A) }
+            tap(KeyCode.CTRL); tap('c'.code)
+            val copied = main { clipboard.primaryClip?.getItemAt(0)?.coerceToText(host)?.toString() == "abc" &&
+                observedCtrl(android.view.KeyEvent.KEYCODE_C) }
+            main { host.editor.setSelection(host.editor.text.length) }
+            tap(KeyCode.CTRL); tap('v'.code)
+            // Clipboard delivery and InputConnection text updates are asynchronous
+            // on some Android emulators. Keep the real touch-injected Ctrl+V and
+            // exact editor assertion, but allow bounded completion before failing.
+            val pasteDeadline = SystemClock.uptimeMillis() + 2500
+            var pasted = false
+            do {
+                waitForIdleSync()
+                pasted = main { host.editor.text.toString() == "abcabc" && observedCtrl(android.view.KeyEvent.KEYCODE_V) }
+                if (pasted) break
+                SystemClock.sleep(100)
+            } while (SystemClock.uptimeMillis() < pasteDeadline)
+            if (!pasted) {
+                val editorState = main {
+                    "text=" + host.editor.text.toString() +
+                        ", selection=" + host.editor.selectionStart + ".." + host.editor.selectionEnd +
+                        ", windowFocus=" + host.editor.hasWindowFocus() +
+                        ", inputFocus=" + host.editor.hasFocus()
+                }
+                val clipboardState = main {
+                    (host.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                        .primaryClip?.getItemAt(0)?.coerceToText(host)?.toString()
+                }
+                log.append("Ctrl+V failed after bounded wait: ")
+                    .append(editorState).append(", clipboard=").append(clipboardState).append(System.lineSeparator())
+            }
+            tap(KeyCode.ALT); tap('x'.code)
+            val alt = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_X && it.second and android.view.KeyEvent.META_ALT_ON != 0 } }
+            tap(KeyCode.TAB)
+            val tab = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_TAB } }
+            main { host.editor.setText("x"); host.editor.setSelection(1) }
+            waitForIdleSync(); SystemClock.sleep(200)
+            tap(KeyCode.SHIFT); tap('a'.code)
+            val shifted = main { host.editor.text.toString().endsWith("A") }
+            return linkedMapOf("Ctrl+A" to selects, "Ctrl+C" to copied, "Ctrl+V" to pasted, "Alt" to alt, "Tab" to tab, "Shift" to shifted)
+        } finally {
+            main { if (previousClip != null) clipboard.setPrimaryClip(previousClip) else clipboard.clearPrimaryClip() }
         }
-        tap(KeyCode.ALT); tap('x'.code)
-        val alt = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_X && it.second and android.view.KeyEvent.META_ALT_ON != 0 } }
-        tap(KeyCode.TAB)
-        val tab = main { host.editor.keyEvents.any { it.first == android.view.KeyEvent.KEYCODE_TAB } }
-        main { host.editor.setText("x"); host.editor.setSelection(1) }
-        waitForIdleSync(); SystemClock.sleep(200)
-        tap(KeyCode.SHIFT); tap('a'.code)
-        val shifted = main { host.editor.text.toString().endsWith("A") }
-        return linkedMapOf("Ctrl+A" to selects, "Ctrl+C" to copied, "Ctrl+V" to pasted, "Alt" to alt, "Tab" to tab, "Shift" to shifted)
     }
 
-    private fun tapKey(predicate: (Key) -> Boolean) {
+    private fun tapKey(host: ThemeSmokeActivity, predicate: (Key) -> Boolean) {
+        val frame = awaitEditorKeyboard(host)
         val point = main {
+            check(keyboardFrame(host) == frame) { "Keyboard moved before touch injection" }
             val view = checkNotNull(KeyboardSwitcher.getInstance().mainKeyboardView)
             check(view.isShown)
             val keyboard = checkNotNull(view.keyboard)
             val key = keyboard.sortedKeys.firstOrNull(predicate) ?: error("No matching key in ${keyboard.mId}; codes=${keyboard.sortedKeys.map { it.code }}")
             val location = IntArray(2); view.getLocationOnScreen(location)
-            floatArrayOf(location[0] + key.x + key.width / 2f, location[1] + key.y + key.height / 2f)
+            val x = location[0] + view.paddingLeft + key.x + key.width / 2f
+            val y = location[1] + view.paddingTop + key.y + key.height / 2f
+            val visible = android.graphics.Rect()
+            check(view.getGlobalVisibleRect(visible) && visible.contains(x.toInt(), y.toInt())) { "Key center is outside the visible IME: $visible" }
+            check(uiAutomation.windows.any { window ->
+                val bounds = android.graphics.Rect(); window.getBoundsInScreen(bounds)
+                window.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD && bounds.contains(x.toInt(), y.toInt())
+            }) { "Key center is not in the input-method window" }
+            log.append("TOUCH code=${key.code}, point=$x,$y, frame=$frame\n")
+            floatArrayOf(x, y)
         }
         val now = SystemClock.uptimeMillis()
         // IME windows are managed separately from the editor activity. Android 15's

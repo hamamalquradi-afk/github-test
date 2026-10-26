@@ -11,6 +11,8 @@ import android.view.KeyEvent
 /** Private debug-only input target, used to tap the actual IME during emulator verification. */
 class ThemeSmokeActivity : Activity() {
     lateinit var editor: RecordingEditor
+    var imeAnimating = false
+        private set
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         editor = RecordingEditor(this).apply {
@@ -20,6 +22,21 @@ class ThemeSmokeActivity : Activity() {
             // makes shortcut comparisons depend on extract-view focus.
             // Test on the real host field in both orientations instead.
             imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            id = android.R.id.edit
+            // isShown becomes true before an IME slide has finished. Track the
+            // actual animation so touch tests never use an intermediate origin.
+            setWindowInsetsAnimationCallback(object : android.view.WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                private val animations = mutableSetOf<android.view.WindowInsetsAnimation>()
+                override fun onPrepare(animation: android.view.WindowInsetsAnimation) {
+                    if (animation.typeMask and android.view.WindowInsets.Type.ime() != 0) animations.add(animation)
+                    imeAnimating = animations.isNotEmpty()
+                }
+                override fun onProgress(insets: android.view.WindowInsets, runningAnimations: MutableList<android.view.WindowInsetsAnimation>): android.view.WindowInsets = insets
+                override fun onEnd(animation: android.view.WindowInsetsAnimation) {
+                    animations.remove(animation)
+                    imeAnimating = animations.isNotEmpty()
+                }
+            })
             hint = "Gallery keyboard smoke test"
             setSingleLine(false)
             gravity = android.view.Gravity.TOP

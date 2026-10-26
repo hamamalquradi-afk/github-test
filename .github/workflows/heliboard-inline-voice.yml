@@ -3,13 +3,10 @@ on:
   push:
     branches:
       - heliboard-inline-voice-v1
-    # Host-only verification/configuration edits reuse existing APKs. Any
-    # application/overlay input change still selects the normal build path.
-    paths-ignore:
+    paths:
+      - heliboard-inline-voice/**
       - .github/workflows/heliboard-inline-voice.yml
       - .github/workflows/heliboard-theme-verify.yml
-      - heliboard-inline-voice/themes/prepare-emulator-fixture.py
-      - heliboard-inline-voice/themes/test_prepare_emulator_fixture.py
   workflow_dispatch:
 
 permissions:
@@ -17,6 +14,9 @@ permissions:
   actions: read
 
 jobs:
+  verify-built:
+    if: startsWith(github.event.head_commit.message, '[verify-built]')
+    uses: ./.github/workflows/heliboard-theme-verify.yml
   build-debug:
     # A verification-only commit consumes a previously built APK after proving
     # its application source is unchanged; see heliboard-theme-verify.yml.
@@ -36,6 +36,10 @@ jobs:
         run: python3 heliboard-inline-voice/apply_overlay.py heliboard-source
       - name: Validate patched layout and install identifiers
         run: python3 heliboard-inline-voice/validate_overlay.py heliboard-source
+      - name: Run focused host fixture regressions
+        run: |
+          python3 -m unittest discover -s heliboard-inline-voice/themes -p test_prepare_emulator_fixture.py -v
+          python3 -m unittest discover -s heliboard-inline-voice/branding/tests -p 'test_*.py' -v
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -52,12 +56,25 @@ jobs:
           if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
             ln -s android-37.0 "$ANDROID_HOME/platforms/android-37"
           fi
+      - name: Select explicit signing cache file
+        run: echo "KEYNOVA_DEBUG_KEYSTORE=$RUNNER_TEMP/keynova-signing/debug.keystore" >> "$GITHUB_ENV"
       - name: Retain Compact debug signing identity for subsequent builds
         id: compact_signing
         uses: actions/cache/restore@v4
         with:
-          path: ~/.android/debug.keystore
+          path: ${{ env.KEYNOVA_DEBUG_KEYSTORE }}
           key: heliboard-compact-debug-signing-v1
+      - name: Prepare explicit Compact debug signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$KEYNOVA_DEBUG_KEYSTORE")"
+          if [ ! -f "$KEYNOVA_DEBUG_KEYSTORE" ]; then
+            echo '::warning title=Debug signing::No retained private key is available. This build cannot promise an in-place update of previously signed APKs; keep the working keyboard and its data.'
+            keytool -genkeypair -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          chmod 600 "$KEYNOVA_DEBUG_KEYSTORE"
+          keytool -list -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey
       - name: Restore pinned Gradle dependencies
         id: pinned_gradle
         uses: actions/cache/restore@v4
@@ -136,6 +153,18 @@ jobs:
           python3 heliboard-inline-voice/compare_test_results.py \
             heliboard-baseline/app/build/test-results/testDebugUnitTest \
             heliboard-source/app/build/test-results/testDebugUnitTest
+      - name: Require all focused application regression tests
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib, xml.etree.ElementTree as ET
+          root = pathlib.Path('heliboard-source/app/build/test-results/testDebugUnitTest')
+          cases = [c for p in root.glob('TEST-*.xml') for c in ET.parse(p).getroot().findall('testcase')]
+          for name, minimum in [('BrandingTest', 2), ('VoiceInputControllerTest', 10), ('ThemeGalleryTest', 10), ('ModifierLifecycleTest', 4)]:
+              selected = [c for c in cases if c.get('classname', '').endswith('.' + name)]
+              assert len(selected) >= minimum, f'{name} tests missing: {len(selected)}'
+              assert all(c.find('failure') is None and c.find('error') is None and c.find('skipped') is None for c in selected), f'{name} failed/skipped'
+              print(f'PASS: {name}: {len(selected)} tests')
+          PYCODE
       - name: Upload JVM test result reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -146,18 +175,21 @@ jobs:
             heliboard-source/app/build/reports/tests/testDebugUnitTest/**
             heliboard-baseline/app/build/test-results/testDebugUnitTest/**
       - name: Verify APK signature and record checksum
+        shell: bash
         run: |
-          APK=heliboard-source/app/build/outputs/apk/debug/HeliBoard_4.3-beta1-debug.apk
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK"
-          sha256sum "$APK" > "${APK}.sha256"
-          APK=heliboard-source/app/build/outputs/apk/themes/HeliBoard_4.3-beta1-themes.apk
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK"
-          sha256sum "$APK" > "${APK}.sha256"
+          set -euo pipefail
+          EXPECTED_CERT="$(keytool -exportcert -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+          for variant in debug themes; do
+            APK="heliboard-source/app/build/outputs/apk/$variant/HeliBoard_4.3-beta1-$variant.apk"
+            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK" | tee "/tmp/keynova-$variant-signature.txt"
+            grep -Fq "Signer #1 certificate SHA-256 digest: $EXPECTED_CERT" "/tmp/keynova-$variant-signature.txt"
+            sha256sum "$APK" > "${APK}.sha256"
+          done
       - name: Save Compact debug signing identity before emulator tests
         if: steps.compact_signing.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ~/.android/debug.keystore
+          path: ${{ env.KEYNOVA_DEBUG_KEYSTORE }}
           key: heliboard-compact-debug-signing-v1
       - name: Publish built APK (if successful)
         uses: actions/upload-artifact@v4

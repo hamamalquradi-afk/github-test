@@ -53,6 +53,22 @@ s = replace_once(s,
     "voice key handler")
 latin.write_text(s, encoding="utf-8")
 
+# Finishing/reloading the IME must clear both the effective mask and latched
+# modifier presses. Otherwise the first Ctrl/Alt tap toggles a stale latch off.
+listener = root / "app/src/main/java/helium314/keyboard/keyboard/KeyboardActionListenerImpl.kt"
+l = listener.read_text(encoding="utf-8")
+l = replace_once(l,
+    "    override fun resetMetaState() {\n        metaState = 0\n    }",
+    "    override fun resetMetaState() {\n"
+    "        metaState = 0\n"
+    "        metaPressStates.forEach { key, _ ->\n"
+    "            keyboardSwitcher.mainKeyboardView?.updateLockState(key, false)\n"
+    "        }\n"
+    "        metaPressStates.clear()\n"
+    "    }",
+    "clear modifier latches and graphics when input finishes")
+listener.write_text(l, encoding="utf-8")
+
 m = manifest.read_text(encoding="utf-8")
 m = replace_once(m,
     '    <uses-permission android:name="android.permission.READ_CONTACTS" />',
@@ -148,6 +164,12 @@ defaults.write_text(d, encoding="utf-8")
 # alongside the user's working v1 without uninstalling or losing preferences.
 build = root / "app/build.gradle.kts"
 g = build.read_text(encoding="utf-8")
+# CI caches this explicit file, rather than assuming AGP's default key location.
+# Local builds retain upstream defaults unless the environment selects a key.
+g = replace_once(g, "    buildTypes {",
+    '    signingConfigs.getByName("debug") {\n'
+    '        System.getenv("KEYNOVA_DEBUG_KEYSTORE")?.let { storeFile = file(it) }\n'
+    '    }\n\n    buildTypes {', "explicit optional CI signing file")
 g = replace_once(g,
     "            isMinifyEnabled = true\n"
     "            isJniDebuggable = false\n"

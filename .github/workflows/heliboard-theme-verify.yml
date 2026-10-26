@@ -1,7 +1,17 @@
 name: Verify built HeliBoard Themes APKs
 on:
-  push:
-    branches: [heliboard-inline-voice-v1]
+  # One push creates one workflow run. The build workflow routes host-only
+  # [verify-built] commits here as a reusable job instead of a second push run.
+  workflow_call:
+    inputs:
+      source_run_id:
+        type: string
+        required: false
+        default: '40249783089'
+      source_commit:
+        type: string
+        required: false
+        default: 46e8221f057379c2753160664a33c4abf302857f
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -31,7 +41,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run focused emulator fixture regression tests
-        run: python3 -m unittest discover -s heliboard-inline-voice/themes -p test_prepare_emulator_fixture.py -v
+        run: |
+          python3 -m unittest discover -s heliboard-inline-voice/themes -p test_prepare_emulator_fixture.py -v
+          python3 -m unittest discover -s heliboard-inline-voice/branding/tests -p 'test_*.py' -v
       - name: Prove built APK provenance and unchanged application source
         id: provenance
         shell: bash
@@ -43,7 +55,7 @@ jobs:
           python3 - <<'PY'
           import os, subprocess
           changed = subprocess.check_output(['git', 'diff', '--name-only', os.environ['SOURCE_COMMIT'], 'HEAD'], text=True).splitlines()
-          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py', 'heliboard-inline-voice/themes/test_prepare_emulator_fixture.py', 'heliboard-inline-voice/branding/verify-emulator.sh'}
+          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py', 'heliboard-inline-voice/themes/test_prepare_emulator_fixture.py', 'heliboard-inline-voice/branding/verify-emulator.sh', 'heliboard-inline-voice/branding/tests/test_ci_diagnostics.py'}
           unexpected = [p for p in changed if p not in allowed and not p.endswith('.md')]
           if unexpected:
               raise SystemExit('Application source changed; rebuild is required: ' + repr(unexpected))
@@ -142,9 +154,15 @@ jobs:
           repository = os.environ['GITHUB_REPOSITORY']
           source_run = os.environ['SOURCE_RUN']
           def sanitize(text):
+              text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
               return re.sub(r'https?://[^\s]+', '[URL redacted]', text).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          # New gh versions reject ANSI-containing job logs even when captured.
+          # Opt in only when supported, then sanitize before emitting notices.
+          help_text = subprocess.run(['gh', 'api', '--help'], capture_output=True, text=True, check=True).stdout
+          log_flags = ['--allow-escape-sequences'] if '--allow-escape-sequences' in help_text else []
           def api(path):
-              result = subprocess.run(['gh', 'api', path], capture_output=True)
+              flags = log_flags if path.endswith('/logs') else []
+              result = subprocess.run(['gh', 'api', path, *flags], capture_output=True)
               if result.returncode:
                   detail = result.stderr.decode(errors='replace')
                   print('::error title=Signing-cache API diagnostic::' + sanitize(detail)[:1800])
@@ -219,9 +237,15 @@ jobs:
           repository = os.environ['GITHUB_REPOSITORY']
           source_run = os.environ['SOURCE_RUN']
           def sanitize(text):
+              text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
               return re.sub(r'https?://[^\s]+', '[URL redacted]', text).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          # New gh versions reject ANSI-containing job logs even when captured.
+          # Opt in only when supported, then sanitize before emitting notices.
+          help_text = subprocess.run(['gh', 'api', '--help'], capture_output=True, text=True, check=True).stdout
+          log_flags = ['--allow-escape-sequences'] if '--allow-escape-sequences' in help_text else []
           def api(path):
-              result = subprocess.run(['gh', 'api', path], capture_output=True)
+              flags = log_flags if path.endswith('/logs') else []
+              result = subprocess.run(['gh', 'api', path, *flags], capture_output=True)
               if result.returncode:
                   detail = result.stderr.decode(errors='replace')
                   print('::error title=Signing-cache API diagnostic::' + sanitize(detail)[:1800])
