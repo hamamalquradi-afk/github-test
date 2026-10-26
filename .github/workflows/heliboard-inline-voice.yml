@@ -67,15 +67,47 @@ jobs:
           : "${KEYSTORE_B64:?Missing KEYNOVA_SIGNING_KEYSTORE_B64 secret}"
           : "${KEYNOVA_SIGNING_PASSWORD:?Missing KEYNOVA_SIGNING_PASSWORD secret}"
           : "${KEYNOVA_SIGNING_KEY_ALIAS:?Missing KEYNOVA_SIGNING_KEY_ALIAS secret}"
+          # Exported credential text files contain terminal newlines; GitHub secrets can retain them.
+          # Normalize only boundary whitespace, never echo passwords or private-key material.
+          KEYNOVA_SIGNING_PASSWORD="$(python3 -c 'import os,sys;sys.stdout.write(os.environ["KEYNOVA_SIGNING_PASSWORD"].strip())')"
+          KEYNOVA_SIGNING_KEY_ALIAS="$(python3 -c 'import os,sys;sys.stdout.write(os.environ["KEYNOVA_SIGNING_KEY_ALIAS"].strip())')"
+          export KEYNOVA_SIGNING_PASSWORD KEYNOVA_SIGNING_KEY_ALIAS
+          if [ "${#KEYNOVA_SIGNING_PASSWORD}" -lt 32 ]; then
+            echo "::error title=Invalid signing password secret::Expected a password of at least 32 characters; check KEYNOVA_SIGNING_PASSWORD."
+            exit 1
+          fi
+          if [ "$KEYNOVA_SIGNING_KEY_ALIAS" != "keynova-smart" ]; then
+            echo "::error title=Invalid signing alias::KEYNOVA_SIGNING_KEY_ALIAS must match the backed-up key alias."
+            exit 1
+          fi
           umask 077
           mkdir -p "$RUNNER_TEMP/keynova-signing"
           KEYNOVA_DEBUG_KEYSTORE="$RUNNER_TEMP/keynova-signing/keynova-smart.p12"
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYNOVA_DEBUG_KEYSTORE"
-          test -s "$KEYNOVA_DEBUG_KEYSTORE"
+          if ! printf '%s' "$KEYSTORE_B64" | tr -d '\r\n\t ' | base64 --decode > "$KEYNOVA_DEBUG_KEYSTORE"; then
+            echo "::error title=Invalid signing keystore secret::KEYNOVA_SIGNING_KEYSTORE_B64 is not valid Base64."
+            exit 1
+          fi
+          if [ ! -s "$KEYNOVA_DEBUG_KEYSTORE" ]; then
+            echo "::error title=Empty signing keystore::Decoded KEYNOVA_SIGNING_KEYSTORE_B64 is empty."
+            exit 1
+          fi
           export KEYNOVA_DEBUG_KEYSTORE
-          keytool -list -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" >/dev/null
+          if ! keytool -list -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD >/dev/null 2>&1; then
+            echo "::error title=Signing password or key mismatch::PKCS12 keystore cannot be opened with KEYNOVA_SIGNING_PASSWORD. Recheck the secret against your backed-up file."
+            exit 1
+          fi
+          if ! keytool -list -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error title=Signing alias not found::Keystore opened, but KEYNOVA_SIGNING_KEY_ALIAS is not present."
+            exit 1
+          fi
+          EXPECTED_CERT_SHA256=2274da5280a2acc2456835e8d56de5d37887f6e85d5b3df2acb088428d1d6270
+          ACTUAL_CERT_SHA256="$(keytool -exportcert -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" | sha256sum | cut -d ' ' -f 1)"
+          if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error title=Unexpected signing certificate::Configured key does not match the permanent KEYNOVA certificate backed up by the owner."
+            exit 1
+          fi
           echo "KEYNOVA_DEBUG_KEYSTORE=$KEYNOVA_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
-          echo 'Permanent signing key restored and validated (no credentials printed).'
+          echo "PASS: permanent signing key, password, alias and SHA-256 fingerprint validated."
       - name: Restore pinned Gradle dependencies
         id: pinned_gradle
         uses: actions/cache/restore@v4
