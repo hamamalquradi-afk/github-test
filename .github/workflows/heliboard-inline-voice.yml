@@ -56,25 +56,28 @@ jobs:
           if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
             ln -s android-37.0 "$ANDROID_HOME/platforms/android-37"
           fi
-      - name: Select explicit signing cache file
-        run: echo "KEYNOVA_DEBUG_KEYSTORE=$RUNNER_TEMP/keynova-signing/debug.keystore" >> "$GITHUB_ENV"
-      - name: Retain Compact debug signing identity for subsequent builds
-        id: compact_signing
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.KEYNOVA_DEBUG_KEYSTORE }}
-          key: heliboard-compact-debug-signing-v1
-      - name: Prepare explicit Compact debug signing key
+      - name: Restore permanent KEYNOVA signing identity from repository secrets
         shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYNOVA_SIGNING_KEYSTORE_B64 }}
+          KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
+          KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          mkdir -p "$(dirname "$KEYNOVA_DEBUG_KEYSTORE")"
-          if [ ! -f "$KEYNOVA_DEBUG_KEYSTORE" ]; then
-            echo '::warning title=Debug signing::No retained private key is available. This build cannot promise an in-place update of previously signed APKs; keep the working keyboard and its data.'
-            keytool -genkeypair -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
-          fi
-          chmod 600 "$KEYNOVA_DEBUG_KEYSTORE"
-          keytool -list -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey
+          : "${KEYSTORE_B64:?Missing KEYNOVA_SIGNING_KEYSTORE_B64 secret}"
+          : "${KEYNOVA_SIGNING_PASSWORD:?Missing KEYNOVA_SIGNING_PASSWORD secret}"
+          : "${KEYNOVA_SIGNING_KEY_ALIAS:?Missing KEYNOVA_SIGNING_KEY_ALIAS secret}"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/keynova-signing"
+          KEYNOVA_DEBUG_KEYSTORE="$RUNNER_TEMP/keynova-signing/keynova-smart.p12"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYNOVA_DEBUG_KEYSTORE"
+          test -s "$KEYNOVA_DEBUG_KEYSTORE"
+          export KEYNOVA_DEBUG_KEYSTORE
+          keytool -list -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" >/dev/null
+          echo "KEYNOVA_DEBUG_KEYSTORE=$KEYNOVA_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
+          echo "KEYNOVA_SIGNING_PASSWORD=$KEYNOVA_SIGNING_PASSWORD" >> "$GITHUB_ENV"
+          echo "KEYNOVA_SIGNING_KEY_ALIAS=$KEYNOVA_SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo 'Permanent signing key restored and validated (no credentials printed).'
       - name: Restore pinned Gradle dependencies
         id: pinned_gradle
         uses: actions/cache/restore@v4
@@ -178,19 +181,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_CERT="$(keytool -exportcert -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey | sha256sum | cut -d ' ' -f 1)"
+          EXPECTED_CERT="$(keytool -exportcert -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" | sha256sum | cut -d ' ' -f 1)"
           for variant in debug themes; do
             APK="heliboard-source/app/build/outputs/apk/$variant/HeliBoard_4.3-beta1-$variant.apk"
-            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK" | tee "/tmp/keynova-$variant-signature.txt"
-            grep -Fq "Signer #1 certificate SHA-256 digest: $EXPECTED_CERT" "/tmp/keynova-$variant-signature.txt"
+            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK" > "/tmp/keynova-$variant-signature.txt"
+            python3 - "$EXPECTED_CERT" "/tmp/keynova-$variant-signature.txt" <<'PY'
+          import pathlib, re, sys
+          expected, path = sys.argv[1:]
+          content = pathlib.Path(path).read_text()
+          found = re.findall(r'(?im)^.*certificate SHA-256 digest:\\s*([0-9a-f]{64})\\s*$', content)
+          if not found or len(set(x.lower() for x in found)) != 1 or found[0].lower() != expected.lower():
+              raise SystemExit("APK signing certificate mismatch or ambiguous certificate metadata")
+          print("PASS: APK signature and certificate match permanent signing identity")
+          PY
             sha256sum "$APK" > "${APK}.sha256"
           done
-      - name: Save Compact debug signing identity before emulator tests
-        if: steps.compact_signing.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.KEYNOVA_DEBUG_KEYSTORE }}
-          key: heliboard-compact-debug-signing-v1
       - name: Publish built APK (if successful)
         uses: actions/upload-artifact@v4
         with:
