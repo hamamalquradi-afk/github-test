@@ -3,6 +3,13 @@ on:
   push:
     branches:
       - heliboard-inline-voice-v1
+    # Host-only verification/configuration edits reuse existing APKs. Any
+    # application/overlay input change still selects the normal build path.
+    paths-ignore:
+      - .github/workflows/heliboard-inline-voice.yml
+      - .github/workflows/heliboard-theme-verify.yml
+      - heliboard-inline-voice/themes/prepare-emulator-fixture.py
+      - heliboard-inline-voice/themes/test_prepare_emulator_fixture.py
   workflow_dispatch:
 
 permissions:

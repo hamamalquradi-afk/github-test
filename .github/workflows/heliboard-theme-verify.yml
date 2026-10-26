@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Run focused emulator fixture regression tests
+        run: python3 -m unittest discover -s heliboard-inline-voice/themes -p test_prepare_emulator_fixture.py -v
       - name: Prove built APK provenance and unchanged application source
         id: provenance
         shell: bash
@@ -41,7 +43,7 @@ jobs:
           python3 - <<'PY'
           import os, subprocess
           changed = subprocess.check_output(['git', 'diff', '--name-only', os.environ['SOURCE_COMMIT'], 'HEAD'], text=True).splitlines()
-          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py', 'heliboard-inline-voice/branding/verify-emulator.sh'}
+          allowed = {'.github/workflows/heliboard-inline-voice.yml', '.github/workflows/heliboard-theme-verify.yml', 'heliboard-inline-voice/themes/emulator-test.sh', 'heliboard-inline-voice/themes/prepare-emulator-fixture.py', 'heliboard-inline-voice/themes/test_prepare_emulator_fixture.py', 'heliboard-inline-voice/branding/verify-emulator.sh'}
           unexpected = [p for p in changed if p not in allowed and not p.endswith('.md')]
           if unexpected:
               raise SystemExit('Application source changed; rebuild is required: ' + repr(unexpected))
