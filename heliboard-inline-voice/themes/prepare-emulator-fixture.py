@@ -67,8 +67,16 @@ def prepare(package):
                 for prop in ('ro.kernel.qemu', 'ro.boot.qemu')]
     if b'1' not in emulator:
         raise RuntimeError('Fixture must only be used on an Android emulator')
-    if b'shell_v2' not in adb('features', check=True).stdout.strip().split(b','):
+    # `adb features` prints one feature per line; accept comma-delimited
+    # variants too, while still requiring an exact capability token.
+    features = adb('features', check=True).stdout.replace(b',', b' ').split()
+    if b'shell_v2' not in features:
         raise RuntimeError('Fixture requires ADB shell-v2 remote exit status and separate stderr')
+    # Read-only transport check before touching app state. Do not trust a
+    # feature advertisement if remote status or stderr framing is broken.
+    probe = adb('shell', '-T', "printf 'keynova-out'; printf 'keynova-err' >&2; exit 37")
+    if (probe.returncode, probe.stdout, probe.stderr) != (37, b'keynova-out', b'keynova-err'):
+        raise RuntimeError('ADB shell-v2 probe failed: remote exit status or stderr is not preserved')
     adb('shell', 'am', 'force-stop', package, check=True)
     directory = f'/data/user_de/0/{package}/shared_prefs'
     path = f'{directory}/{package}_preferences.xml'

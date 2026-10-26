@@ -14,7 +14,7 @@ import os, shlex, subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
 if args[0] == 'features':
-    print('shell_v2' if os.environ.get('FAIL') != 'legacy' else 'cmd'); sys.exit(0)
+    print(os.environ.get('FEATURES', chr(10).join(['cmd', 'shell_v2', 'stat_v2'])) if os.environ.get('FAIL') != 'legacy' else 'cmd'); sys.exit(0)
 if args[:2] == ['shell', 'getprop']:
     print('1' if os.environ.get('FAIL') != 'physical' else '0'); sys.exit(0)
 if args[:3] == ['shell', 'am', 'force-stop']: sys.exit(0)
@@ -23,6 +23,12 @@ if not legacy:
     assert args[:2] == ['shell', '-T'], args
     parts = shlex.split(args[2])
 else: parts = args[1:]
+if not legacy and parts[0] != 'run-as':
+    result = subprocess.run(['sh', '-c', args[2]], capture_output=True)
+    out, err, status = result.stdout, result.stderr, result.returncode
+    if os.environ.get('FAIL') == 'bad-exit': status = 0
+    if os.environ.get('FAIL') == 'merged-stderr': out, err = out + err, b''
+    sys.stdout.buffer.write(out); sys.stderr.buffer.write(err); sys.exit(status)
 assert parts[0] == 'run-as', parts
 if os.environ.get('FAIL') == 'permission':
     print('run-as: permission denied', file=sys.stderr); sys.exit(1)
@@ -64,10 +70,55 @@ class FixtureTests(unittest.TestCase):
         p.write_bytes(data)
         return p
 
-    def run_fixture(self, pkg=PACKAGES[1], failure=None):
+    def run_fixture(self, pkg=PACKAGES[1], failure=None, features=None):
         env = dict(self.env)
         if failure: env['FAIL'] = failure
+        if features is not None: env['FEATURES'] = features
         return subprocess.run([sys.executable, str(SCRIPT), pkg], env=env, capture_output=True)
+
+    def test_newline_features(self):
+        result = self.run_fixture(features='cmd\nshell_v2\nstat_v2\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_comma_features(self):
+        result = self.run_fixture(features='cmd,shell_v2,stat_v2')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mixed_whitespace_features(self):
+        for value in ('cmd shell_v2 stat_v2', ' cmd,\r\n \tshell_v2 ,stat_v2\n', 'shell_v2\tcmd'):
+            with self.subTest(value=value):
+                result = self.run_fixture(features=value)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_or_partial_capability_is_refused_without_writes(self):
+        p = self.seed(b'<map><int name="keep" value="7"/></map>')
+        before = p.read_bytes()
+        for value in ('cmd\nstat_v2', '', 'not_shell_v2,cmd', 'shell_v20 shell_v2_extra'):
+            with self.subTest(value=value):
+                result = self.run_fixture(features=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b'Fixture requires ADB shell-v2', result.stderr)
+                self.assertEqual(p.read_bytes(), before)
+
+    def test_broken_remote_status_or_stderr_transport_is_refused(self):
+        p = self.seed(b'<map><int name="keep" value="7"/></map>')
+        before = p.read_bytes()
+        for mode in ('bad-exit', 'merged-stderr'):
+            with self.subTest(mode=mode):
+                result = self.run_fixture(failure=mode)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b'probe', result.stderr)
+                self.assertEqual(p.read_bytes(), before)
+
+    def test_shell_v2_success_failure_and_stream_separation(self):
+        for status in (0, 37):
+            with self.subTest(status=status):
+                result = subprocess.run(
+                    ['adb', 'shell', '-T', f"printf 'out'; printf 'err' >&2; exit {status}"],
+                    env=self.env, capture_output=True)
+                self.assertEqual(result.returncode, status)
+                self.assertEqual(result.stdout, b'out')
+                self.assertEqual(result.stderr, b'err')
 
     def test_legacy_probe_reproduces_confirmed_false_presence(self):
         pkg = PACKAGES[1]
