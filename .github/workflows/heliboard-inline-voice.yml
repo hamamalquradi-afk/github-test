@@ -75,8 +75,6 @@ jobs:
           export KEYNOVA_DEBUG_KEYSTORE
           keytool -list -storetype PKCS12 -keystore "$KEYNOVA_DEBUG_KEYSTORE" -storepass:env KEYNOVA_SIGNING_PASSWORD -alias "$KEYNOVA_SIGNING_KEY_ALIAS" >/dev/null
           echo "KEYNOVA_DEBUG_KEYSTORE=$KEYNOVA_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
-          echo "KEYNOVA_SIGNING_PASSWORD=$KEYNOVA_SIGNING_PASSWORD" >> "$GITHUB_ENV"
-          echo "KEYNOVA_SIGNING_KEY_ALIAS=$KEYNOVA_SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
           echo 'Permanent signing key restored and validated (no credentials printed).'
       - name: Restore pinned Gradle dependencies
         id: pinned_gradle
@@ -87,6 +85,9 @@ jobs:
             ~/.gradle/wrapper
           key: heliboard-pinned-deps-e97acdbe-v1
       - name: Build experimental debug APK
+        env:
+          KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
+          KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
         working-directory: heliboard-source
         run: |
           chmod +x gradlew
@@ -178,6 +179,9 @@ jobs:
             heliboard-source/app/build/reports/tests/testDebugUnitTest/**
             heliboard-baseline/app/build/test-results/testDebugUnitTest/**
       - name: Verify APK signature and record checksum
+        env:
+          KEYNOVA_SIGNING_PASSWORD: ${{ secrets.KEYNOVA_SIGNING_PASSWORD }}
+          KEYNOVA_SIGNING_KEY_ALIAS: ${{ secrets.KEYNOVA_SIGNING_KEY_ALIAS }}
         shell: bash
         run: |
           set -euo pipefail
@@ -189,7 +193,7 @@ jobs:
           import pathlib, re, sys
           expected, path = sys.argv[1:]
           content = pathlib.Path(path).read_text()
-          found = re.findall(r'(?im)^.*certificate SHA-256 digest:\\s*([0-9a-f]{64})\\s*$', content)
+          found = re.findall(r'(?im)^.*certificate SHA-256 digest:\s*([0-9a-f]{64})\s*$', content)
           if not found or len(set(x.lower() for x in found)) != 1 or found[0].lower() != expected.lower():
               raise SystemExit("APK signing certificate mismatch or ambiguous certificate metadata")
           print("PASS: APK signature and certificate match permanent signing identity")
