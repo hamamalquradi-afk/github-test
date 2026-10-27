@@ -4,3 +4,24 @@ node_modules/
 .env*
 !.env.example
 npm-debug.log*
+
+# Python host-test bytecode and caches (not overlay sources).
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Android checkouts and reports created by the existing CI workflows.
+/heliboard-source/
+/heliboard-baseline/
+/verified/
+/heliboard-inline-voice/test-results/
+/heliboard-inline-voice/**/build/
+.gradle/
+local.properties
+
+# Private signing containers stay in GitHub Secrets / runner temporary storage.
+*.keystore
+*.jks
+*.p12
+*.pfx
