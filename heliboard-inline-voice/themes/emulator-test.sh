@@ -10,15 +10,35 @@ run_mode() {
   python3 heliboard-inline-voice/themes/prepare-emulator-fixture.py "$package"
   # Force-stop changes Android's selected IME. Re-select it before opening settings,
   # otherwise the welcome wizard correctly covers the gallery during this test.
-  adb shell ime enable "$package/helium314.keyboard.latin.LatinIME"
-  adb shell ime set "$package/helium314.keyboard.latin.LatinIME"
-  # A previous launcher smoke opens the welcome wizard before enabling the IME.
-  # Its rememberSaveable state can survive in the activity task after force-stop.
-  # Recreate only the UI task after selecting the IME; keep all app preferences,
-  # theme files and the persistence assertion intact. The fixture above enforces
-  # emulator-only execution before these NEW_TASK | CLEAR_TASK flags are used.
-  adb shell am start -W -n "$package/helium314.keyboard.settings.SettingsActivity" -f 0x10008000
-  adb shell am instrument -w -r -e mode "$mode" "$runner" | tee "$out/instrumentation-$mode.txt"
+  local ime="$package/helium314.keyboard.latin.LatinIME"
+  # The instrument command restarts the target APK. On a cold/slow emulator
+  # Android may revert DEFAULT_INPUT_METHOD to Gboard while re-creating its
+  # Settings task. Only retry that exact, independently reported setup race.
+  # Never skip the instrumentation wizard assertion or change user settings.
+  local attempt selected
+  for attempt in 1 2; do
+    adb shell ime enable "$ime"
+    adb shell ime set "$ime"
+    # A previous launcher smoke opens the welcome wizard before enabling IME.
+    # Recreate only the UI task; retain app preferences and image files.
+    adb shell am start -W -n "$package/helium314.keyboard.settings.SettingsActivity" -f 0x10008000
+    # Cold startup can reset the selected IME AFTER the first 'ime set'.
+    adb shell ime set "$ime"
+    selected="$(adb shell settings get secure default_input_method | tr -d '\r')"
+    if [ "$selected" != "$ime" ]; then
+      echo "::error::Emulator selected IME mismatch before instrumentation: $selected (expected $ime)"
+      exit 1
+    fi
+    adb shell am instrument -w -r -e mode "$mode" "$runner" | tee "$out/instrumentation-$mode.txt"
+    if grep -Fq 'THEME_SMOKE_PASS' "$out/instrumentation-$mode.txt"; then
+      break
+    fi
+    if [ "$attempt" -eq 1 ] && grep -Fq 'Welcome wizard requires setup; selectedIme=' "$out/instrumentation-$mode.txt"; then
+      echo "WARN: emulator reverted to its default IME during instrumentation startup; reselecting once"
+      continue
+    fi
+    break
+  done
   adb pull "/sdcard/Android/data/$package/files/gallery-smoke/." "$out/" || true
   if ! grep -Fq 'THEME_SMOKE_PASS' "$out/instrumentation-$mode.txt"; then
     python3 - "$out/instrumentation-$mode.txt" <<'PYCODE'
