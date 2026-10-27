@@ -218,7 +218,13 @@ public class VoiceInputControllerTest {
 
     @Test public void failedDeletionDoesNotAppendDuplicate() throws Exception {
         partial("hello"); when(editor.deleteSurroundingText(anyInt(), eq(0))).thenReturn(false);
-        partial("hello world"); assertEquals("Existing: hello", text.toString());
+        partial("hello world");
+        // The failed replacement must not insert the revised hypothesis.
+        // Controlled shutdown now seals the surviving original preview with
+        // ONE separator, which is required before future dictation.
+        assertEquals("Existing: hello ", text.toString());
+        verify(editor, times(1)).commitText("hello", 1);
+        verify(editor, never()).commitText("hello world", 1);
         verify(editor).endBatchEdit();
     }
 
