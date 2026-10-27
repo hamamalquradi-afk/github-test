@@ -71,8 +71,8 @@ the final value; historical Git objects were deliberately not rewritten.
 | --- | ---: | ---: |
 | Tracked files | 113 | 114 |
 | Directories excluding root | 35 | 35 |
-| Logical bytes | 5,696,243 | 5,731,104 |
-| Logical MiB | 5.432 | 5.466 |
+| Logical bytes | 5,696,243 | 5,735,543 |
+| Logical MiB | 5.432 | 5.470 |
 
 Application/build/test inputs are byte-identical; the increase is only the
 433-byte `.gitignore` addition and this audit report. No tracked payload was
@@ -88,6 +88,7 @@ or ignored and are not committed.
 | Android Java/API compatibility compile | PASS against Android API 35; minimal compile-only IME/KeyboardSwitcher stubs validate adapter API usage. This is not a substitute for the full Gradle or Robolectric run below. |
 | Python syntax | PASS: all 15 Python files parsed. |
 | JSON/XML/PNG | PASS: all 7 JSON files, 10 XML files and 3 full PNG chunk/CRC streams. |
+| Independent web/static script syntax | PASS: Node syntax-checks all 3 .mjs files and compiles 3 inline HTML JavaScript blocks without executing them or connecting to a database; web functional suites are not claimed. |
 | YAML and Actions validation | PASS: all 4 workflows parsed and actionlint v1.7.12 clean. |
 | Shell/embedded Python | PASS: 4 shell files, 31 workflow run blocks and 8 embedded Python blocks. |
 | Curated theme source | PASS: generator run in disposable storage reproduces packaged JSON byte for byte; 80 themes, 10 categories. |
@@ -105,10 +106,52 @@ re-run. Their files are inventoried and unchanged.
 
 ## 7. Android build, regression and signing evidence
 
-New complete Android build: **NOT YET SUBMITTED** at initial report creation.
-The report will be finalized with the actual source commit, exact workflow URL,
-unit/emulator outcomes, APK checksums and signing comparison after completion.
-No required Android validation is claimed passed by local host checks alone.
+Validated cleanup commit: `1a528a04e015aa013bb0a6d970fe1a6d1ce0781e`.
+Complete workflow: [run #82 / 40543977476](https://github.com/hamamalquradi-afk/github-test/actions/runs/40543977476) — **SUCCESS**.
+One full build ran automatically after the cleanup push. No manual duplicate,
+retry build, verification-only workflow or quality-gate change was introduced.
+
+| CI / independent check | Actual result versus baseline #81 |
+| --- | --- |
+| Gradle assembleDebug and assembleThemes | PASS, both freshly built through the existing pipeline as requested. |
+| Existing host Python suites | PASS, all 49 tests. |
+| Full overlay JVM suite | 277 cases: 269 passed, 8 existing failures, 0 skipped. Complete test-name/status/failure-type/message maps are identical to #81. |
+| Unmodified upstream JVM suite | 193 cases: 185 passed, 8 matching failures, 0 skipped. Existing strict comparison gate passed. |
+| Focused project regressions | PASS: Branding 2, modifier lifecycle 4, gallery 10, voice controller 24, voice session 29, voice text buffer 15 (84 total; 68 voice). |
+| Debug and Themes Android emulator | PASS for each: full gallery, force-stop persistence and Arabic RTL modes; all 80 themes and 320 bilingual portrait/landscape previews; background import/reset/fallback; actual Arabic/English/programming-symbol typing and rotation. |
+| Actual on-screen shortcuts | PASS in both packages: Ctrl+A/C/V, Alt, Tab and Shift all true against native baseline. |
+| Side-by-side installation and launch | PASS: both distinct packages installed and their services/components verified by the unchanged smoke scripts. |
+| Voice editor instrumentation | PASS in each installed minified APK: real Android InputConnection with scripted provider. Physical microphone/provider acceptance remains NOT TESTED. |
+| APK integrity and identity | PASS independently after downloading both artifacts: strict apksigner verification, v1+v2, package/version/branding checks and checksum sidecars. |
+| Certificate and update identity | PASS: CI selected-keystore certificate, actual APK signer and independent OpenSSL public-certificate extraction all match the permanent baseline identity. No key/Secret configuration changed. |
+| APK contents | Debug: all 699 ZIP entries identical; Themes: all 695 entries identical. Both entire signed APK byte streams also have the exact baseline SHA-256. |
+| Warnings | 11 warning annotations before and 11 after; exact multisets equal, 0 new warnings. The 8 upstream failures and pre-existing action/runtime deprecations remain disclosed. |
+
+Both APKs retain version code 4301, minimum Android API 21 and target API 37.
+v3/v4 are optional for this v1+v2 signing configuration; their absence is not a
+verification failure. The permanent public certificate SHA-256 for both is:
+`2274da5280a2acc2456835e8d56de5d37887f6e85d5b3df2acb088428d1d6270`.
+
+| Verified artifact | Package | File bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| [debug APK artifact](https://github.com/hamamalquradi-afk/github-test/actions/runs/40543977476/artifacts/12752713155) | `helium314.keyboard.compactdebug` | 29,568,381 | `4422fbbbea1803eabb665392220b01bd81a5a722e7d87151ae639825910a4c40` |
+| [themes APK artifact](https://github.com/hamamalquradi-afk/github-test/actions/runs/40543977476/artifacts/12753935066) | `helium314.keyboard.compactthemesdebug` | 29,425,947 | `c38d4047f6172ce6c6fb065fe88dc9e957fca4396aa8c65fcf1b9e37b5dbe9f9` |
+
+Evidence artifacts:
+
+- [HeliBoard-unit-test-reports](https://github.com/hamamalquradi-afk/github-test/actions/runs/40543977476/artifacts/12751508595).
+- [HeliBoard-signing-verification](https://github.com/hamamalquradi-afk/github-test/actions/runs/40543977476/artifacts/12752544645).
+- [HeliBoard-theme-gallery-verification](https://github.com/hamamalquradi-afk/github-test/actions/runs/40543977476/artifacts/12753920071).
+- [KEYNOVA-voice-editor-verification](https://github.com/hamamalquradi-afk/github-test/actions/runs/40543977476/artifacts/12753007775).
+
+The final report update is a documentation-only commit after successful
+verification, with `[skip ci]` to avoid rebuilding the same unchanged binaries.
+Only this report differs from the validated cleanup commit; `.gitignore` and
+all application/build/test/workflow inputs remain exactly those tested above.
+The tested commit SHA and exact workflow above are the reproducible validation
+reference; the report's own delivery commit is available in this file's Git
+history and the task delivery message. Git history is additive and reversible.
+
 
 ## 8. Remaining risks and follow-up recommendations
 
