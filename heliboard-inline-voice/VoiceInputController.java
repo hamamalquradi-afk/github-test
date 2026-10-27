@@ -22,10 +22,12 @@ import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.ImageButton;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import helium314.keyboard.latin.utils.ToolbarKey;
+import helium314.keyboard.keyboard.KeyboardSwitcher;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -69,6 +71,7 @@ final class VoiceInputController {
     @Nullable private Locale selectedLocale;
     @Nullable private Runnable pendingRestart;
     @Nullable private Runnable pendingWatchdog;
+    @Nullable private VoiceListeningIndicator listeningIndicator;
 
     private boolean enabled;
     private boolean hasPreview;
@@ -150,8 +153,10 @@ final class VoiceInputController {
                     armWatchdog(session, ACTIVE_TIMEOUT_MS);
                 }
                 @Override public void onRmsChanged(float rmsdB) {
-                    // RMS updates may continue indefinitely even when the
-                    // recognition service is stalled; never extend watchdog here.
+                    if (!isCurrentSession(session)) return;
+                    // Drive only the visual level; RMS callbacks must never
+                    // extend a watchdog or imply that the service is still live.
+                    if (listeningIndicator != null) listeningIndicator.setRms(rmsdB);
                 }
                 @Override public void onBufferReceived(byte[] buffer) { }
                 @Override public void onEndOfSpeech() {
@@ -170,9 +175,9 @@ final class VoiceInputController {
                 @Override public void onEvent(int eventType, Bundle params) { }
                 @Override public void onError(int error) {
                     if (!isCurrentSession(session)) return;
-                    // The preview is already visible as ordinary text.
-                    // Never commit it a second time on error.
-                    clearPreviewTracking();
+                    // A partial is already committed as plain text. Seal
+                    // it with a separator, never append the words a second time.
+                    sealPreviewAsPhrase();
                     endSession();
                     if (!enabled) return;
                     if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
@@ -197,7 +202,7 @@ final class VoiceInputController {
                     if (!result.isEmpty()) {
                         commitFinalResult(result);
                     } else {
-                        clearPreviewTracking();
+                        sealPreviewAsPhrase();
                     }
                     consecutiveEngineErrors = 0;
                     consecutiveStalls = 0;
@@ -362,12 +367,34 @@ final class VoiceInputController {
         previewText = "";
     }
 
+    /**
+     * The speech service can end an utterance via ERROR_NO_MATCH, TIMEOUT or
+     * a watchdog without delivering onResults. In that case the last partial
+     * is already real text, but lacks the word boundary of a final result.
+     *
+     * Verify the exact text span before appending ONLY a separator. The old
+     * phrase is then immutable and cannot be replaced by the next session's
+     * cumulative partial. A moved cursor or changed editor is never modified.
+     */
+    private void sealPreviewAsPhrase() {
+        if (!hasPreview) return;
+        final boolean safe = hasVerifiedPreview();
+        clearPreviewTracking();
+        if (!safe) {
+            stopWithMessage("تغير موضع الكتابة؛ توقف الإملاء لحماية النص السابق");
+            return;
+        }
+        if (targetConnection == null || !targetConnection.commitText(" ", 1)) {
+            stopWithMessage("تعذر فصل الجمل الصوتية بأمان");
+        }
+    }
+
     private void armWatchdog(final int session, long timeoutMs) {
         cancelWatchdog();
         pendingWatchdog = () -> {
             pendingWatchdog = null;
             if (!isCurrentSession(session)) return;
-            clearPreviewTracking();
+            sealPreviewAsPhrase();
             endSession();
             if (!enabled) return;
             if (++consecutiveStalls >= MAX_STALLED_SESSIONS) {
@@ -427,9 +454,9 @@ final class VoiceInputController {
             pendingRestart = null;
         }
         cancelWatchdog();
-        // An unfinished interim transcript is already visible and must NOT be
-        // re-committed, even if Stop arrives between partial and final callbacks.
-        clearPreviewTracking();
+        // Preserve the unfinished partial as a completed phrase when safe.
+        // Clear tracking before any recursive error handling.
+        sealPreviewAsPhrase();
         disposeRecognizer();
         targetConnection = null;
         selectedLocale = null;
@@ -460,6 +487,7 @@ final class VoiceInputController {
 
     /** Green = recognition engine ready. Amber = connecting/reconnecting. */
     private void updateMicIcon(final int state) {
+        updateListeningIndicator(state);
         final int revision = ++iconGeneration;
         if (ime.getWindow() == null || ime.getWindow().getWindow() == null) return;
         final View root = ime.getWindow().getWindow().getDecorView();
@@ -479,6 +507,26 @@ final class VoiceInputController {
                 mic.setContentDescription("الإملاء متوقف — اضغط للتحدث");
             }
         });
+    }
+
+    /**
+     * In-place listening bar over the existing strip. The mic/stop target is
+     * fixed on the left and remains usable even while speech service resets.
+     * The strip and its original toolbar are never permanently modified.
+     */
+    private void updateListeningIndicator(int state) {
+        if (state == ICON_OFF) {
+            if (listeningIndicator != null) listeningIndicator.hide();
+            listeningIndicator = null;
+            return;
+        }
+        final FrameLayout strip = KeyboardSwitcher.getInstance().getStripContainer();
+        if (strip == null || strip.getVisibility() != View.VISIBLE) return;
+        if (listeningIndicator == null) {
+            listeningIndicator = new VoiceListeningIndicator(ime, () -> toggle(null));
+        }
+        listeningIndicator.showIn(strip);
+        listeningIndicator.setState(state);
     }
 
     @Nullable

@@ -90,7 +90,7 @@ m = replace_once(m,
     "speech recognizer visibility")
 manifest.write_text(m, encoding="utf-8")
 
-for name in ("VoiceInputController.java", "VoicePermissionActivity.java"):
+for name in ("VoiceInputController.java", "VoiceListeningIndicator.java", "VoicePermissionActivity.java"):
     shutil.copy2(overlay / name, src / name)
 
 

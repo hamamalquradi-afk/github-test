@@ -1,6 +1,7 @@
 package helium314.keyboard.latin;
 
 import android.content.Intent;
+import android.widget.FrameLayout;
 import android.speech.RecognizerIntent;
 import android.text.InputType;
 import android.view.inputmethod.EditorInfo;
@@ -73,6 +74,12 @@ public class VoiceInputControllerTest {
     private void partial(String value) throws Exception { call("showInterimResult", String.class, value); }
     private void finish(String value) throws Exception { call("commitFinalResult", String.class, value); }
 
+    private void seal() throws Exception {
+        Method method = VoiceInputController.class.getDeclaredMethod("sealPreviewAsPhrase");
+        method.setAccessible(true);
+        method.invoke(voice);
+    }
+
     @Test public void recognitionRequestsLongerSilenceWithoutDelayingShortPhrases() {
         Intent intent = VoiceInputController.createDictationIntent(Locale.ENGLISH);
         assertEquals(RecognizerIntent.ACTION_RECOGNIZE_SPEECH, intent.getAction());
@@ -117,7 +124,71 @@ public class VoiceInputControllerTest {
 
     @Test public void stopDoesNotCommitPreviewAgain() throws Exception {
         partial("مرحبا"); voice.stop(); finish("مرحبا");
-        assertEquals("Existing: مرحبا", text.toString());
+        assertEquals("Existing: مرحبا ", text.toString());
+    }
+
+    @Test public void silenceErrorSealsOldPhraseBeforeNewArabicSpeech() throws Exception {
+        partial("مرحبا"); partial("مرحبا كيف");
+        seal(); // same as an end-of-session without onResults
+        partial("حالك"); partial("حالك اليوم");
+        finish("حالك اليوم");
+        assertEquals("Existing: مرحبا كيف حالك اليوم ", text.toString());
+        verify(editor, times(1)).deleteSurroundingText(eq("مرحبا".length()), eq(0));
+    }
+
+    @Test public void repeatedEndCallbacksDoNotAddMultipleSpaces() throws Exception {
+        partial("hello");
+        seal();
+        seal();
+        partial("world");
+        finish("world");
+        assertEquals("Existing: hello world ", text.toString());
+    }
+
+    @Test public void stoppingWhilePartialIsVisiblePreservesSentenceBoundary() throws Exception {
+        partial("first phrase");
+        voice.stop();
+        set("targetConnection", editor);
+        set("enabled", true);
+        partial("second phrase");
+        finish("second phrase");
+        assertEquals("Existing: first phrase second phrase ", text.toString());
+    }
+
+    @Test public void emptySessionDoesNotInsertWhitespace() throws Exception {
+        seal();
+        voice.stop();
+        assertEquals("Existing: ", text.toString());
+    }
+
+    @Test public void cursorChangeNeverDeletesEarlierTextDuringSeal() throws Exception {
+        partial("مرحبا");
+        text.append(" manually entered");
+        seal();
+        assertEquals("Existing: مرحبا manually entered", text.toString());
+        verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
+    }
+
+    @Test public void waveformInputIsClampedAndRejectsInvalidLevels() {
+        assertEquals(0f, VoiceListeningIndicator.normalizeRms(-99f), 0f);
+        assertEquals(1f, VoiceListeningIndicator.normalizeRms(99f), 0f);
+        assertEquals(0f, VoiceListeningIndicator.normalizeRms(Float.NaN), 0f);
+        assertEquals(0f, VoiceListeningIndicator.normalizeRms(Float.POSITIVE_INFINITY), 0f);
+        assertTrue(VoiceListeningIndicator.normalizeRms(4f) > 0f);
+        assertTrue(VoiceListeningIndicator.normalizeRms(4f) < 1f);
+    }
+
+    @Test public void voiceStripIsAttachedAndRemovedWithoutAlteringKeyboard() {
+        final FrameLayout strip = new FrameLayout(ime);
+        final VoiceListeningIndicator indicator = new VoiceListeningIndicator(ime, () -> {});
+        indicator.showIn(strip);
+        indicator.showIn(strip);
+        assertEquals(1, strip.getChildCount());
+        indicator.setState(2);
+        indicator.setRms(6f);
+        indicator.setState(1);
+        indicator.hide();
+        assertEquals(0, strip.getChildCount());
     }
 
     @Test public void changedCursorTextIsNeverDeleted() throws Exception {

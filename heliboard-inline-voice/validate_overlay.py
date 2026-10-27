@@ -88,7 +88,19 @@ assert "armWatchdog(session, READY_TIMEOUT_MS)" in voice
 assert "scheduleRestart(NEXT_UTTERANCE_DELAY_MS)" in voice
 assert "mainHandler.removeCallbacks(pendingRestart)" in voice
 assert "ERROR_TOO_MANY_REQUESTS" in voice
-print("PASS: layout/install identifiers; deduplicated speech previews; verified cursor replacement; voice watchdog/retry state guards")
+# The new voice UI and safe partial-finalization must survive both overlays.
+assert "sealPreviewAsPhrase();" in voice and "private void sealPreviewAsPhrase()" in voice
+assert "listeningIndicator.setRms(rmsdB)" in voice
+assert "updateListeningIndicator(state)" in voice
+assert "new VoiceListeningIndicator(ime, () -> toggle(null))" in voice
+voice_dir = app / "src/main/java/helium314/keyboard/latin"
+for source_name in ("VoiceInputController.java", "VoiceListeningIndicator.java"):
+    assert (voice_dir / source_name).read_bytes() == (overlay / source_name).read_bytes()
+listening_view = (voice_dir / "VoiceListeningIndicator.java").read_text()
+assert "getParent()).removeView(this)" in listening_view
+assert "microphone.setOnClickListener(v -> onStop.run())" in listening_view
+assert "Float.isNaN(rms)" in listening_view
+print("PASS: verified speech span/word boundaries; stop-and-restart microphone strip; RMS-driven waveform")
 
 # Both existing package variants must retain the approved bilingual text identity.
 for variant in ("debug", "themes"):
