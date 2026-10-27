@@ -66,41 +66,45 @@ latin = (app / "src/main/java/helium314/keyboard/latin/LatinIME.java").read_text
 assert "mInlineVoiceInput.toggle(" in latin
 assert "mRichImm.switchToShortcutIme(this)" not in latin
 voice = (overlay / "VoiceInputController.java").read_text()
-# The original composing-preview implementation appended partials in some editors.
-# Never rely on editor-owned composing spans to replace speech previews.
+# Partials are UI-owned buffers; finalized phrases are append-only. Never
+# regress to cursor-relative deletion or editor-owned composing replacements.
 assert "RecognizerIntent.EXTRA_PARTIAL_RESULTS, true" in voice
-assert "onPartialResults(Bundle partialResults)" in voice
+assert "listener.partial(bestResult(results))" in voice
 assert ".setComposingText(" not in voice
-assert "getTextBeforeCursor(previewText.length(), 0)" in voice
-assert "previewText.contentEquals(before)" in voice
-assert "deleteSurroundingText(previewText.length(), 0)" in voice
-assert "connection.beginBatchEdit()" in voice and "connection.endBatchEdit()" in voice
-assert "if (finalText.equals(previewText))" in voice
-assert 'connection.commitText(" ", 1)' in voice
-assert "clearPreviewTracking()" in voice
-# Speech service can never hold a perpetually green state when it stops
-# delivering callbacks: watchdog, bounded retries, and explicit state colors.
-assert "READY_TIMEOUT_MS" in voice and "FINAL_RESULT_TIMEOUT_MS" in voice
-assert "MAX_STALLED_SESSIONS" in voice and "MAX_ENGINE_ERRORS" in voice
-assert "pendingWatchdog" in voice and "cancelWatchdog()" in voice
-assert "ICON_RESTARTING" in voice and "ICON_LISTENING" in voice
-assert "armWatchdog(session, READY_TIMEOUT_MS)" in voice
-assert "scheduleRestart(NEXT_UTTERANCE_DELAY_MS)" in voice
-assert "mainHandler.removeCallbacks(pendingRestart)" in voice
+assert ".deleteSurroundingText(" not in voice and ".setSelection(" not in voice
+assert "getExtractedText(request, 0)" in voice
+assert "extracted.selectionStart != extracted.selectionEnd" in voice
+assert "VoiceTextBuffer" in voice and "syncInputLogic()" in voice
 assert "ERROR_TOO_MANY_REQUESTS" in voice
-# The new voice UI and safe partial-finalization must survive both overlays.
-assert "sealPreviewAsPhrase();" in voice and "private void sealPreviewAsPhrase()" in voice
-assert "listeningIndicator.setRms(rmsdB)" in voice
-assert "updateListeningIndicator(state)" in voice
+manager = (overlay / "VoiceDictationSession.java").read_text()
+assert "READY_MS" in manager and "FINAL_MS" in manager and "PARTIAL_IDLE_MS" in manager
+assert "current() || ended" in manager
+assert "++generation;" in manager and "cancelRestart()" in manager
+assert "Math.min(30000" in manager and "60000" in manager
+assert "hypothesis = value;" in manager and "host.append(phrase)" in manager
+buffer = (overlay / "VoiceTextBuffer.java").read_text()
+assert ".deleteSurroundingText(" not in buffer and ".setComposingText(" not in buffer
+assert "expected.same(editor.snapshot())" in buffer
+assert "editor.finishComposing()" in buffer and "after.cursor != before.cursor + insertion.length()" in buffer
+assert "indicator.setRms(level)" in voice and "indicator.setTranscript(partial)" in voice
 assert "new VoiceListeningIndicator(ime, () -> toggle(null))" in voice
+for lifecycle in ("suspendForRecreation()", "onInputStarted(restarting)", "onInputViewStarted()", "onUpdateSelection()"):
+    assert "mInlineVoiceInput." + lifecycle in latin
 voice_dir = app / "src/main/java/helium314/keyboard/latin"
-for source_name in ("VoiceInputController.java", "VoiceListeningIndicator.java"):
+for source_name in ("VoiceInputController.java", "VoiceListeningIndicator.java", "VoiceDictationSession.java", "VoiceTextBuffer.java"):
     assert (voice_dir / source_name).read_bytes() == (overlay / source_name).read_bytes()
 listening_view = (voice_dir / "VoiceListeningIndicator.java").read_text()
 assert "getParent()).removeView(this)" in listening_view
 assert "microphone.setOnClickListener(v -> onStop.run())" in listening_view
 assert "Float.isNaN(rms)" in listening_view
-print("PASS: verified speech span/word boundaries; stop-and-restart microphone strip; RMS-driven waveform")
+assert "postDelayed(clearLevel, 300)" in listening_view
+for variant in ("debug", "themes"):
+    test_manifest = ET.parse(app / f"src/{variant}/AndroidManifest.xml").getroot()
+    assert any(n.get(android + "name") == "helium314.keyboard.latin.VoiceSmokeInstrumentation"
+               for n in test_manifest.findall("instrumentation"))
+    assert (app / f"src/{variant}/java/helium314/keyboard/latin/VoiceSmokeInstrumentation.java").read_bytes() == (
+        overlay / "voice/debug/VoiceSmokeInstrumentation.java").read_bytes()
+print("PASS: append-only speech boundaries; session-managed mic/recreation; RMS waveform; both voice instrumentations")
 
 # Both existing package variants must retain the approved bilingual text identity.
 for variant in ("debug", "themes"):

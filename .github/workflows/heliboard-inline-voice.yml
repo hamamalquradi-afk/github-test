@@ -160,7 +160,7 @@ jobs:
           import pathlib, xml.etree.ElementTree as ET
           root = pathlib.Path('heliboard-source/app/build/test-results/testDebugUnitTest')
           cases = [c for p in root.glob('TEST-*.xml') for c in ET.parse(p).getroot().findall('testcase')]
-          for name, minimum in [('BrandingTest', 2), ('VoiceInputControllerTest', 10), ('ThemeGalleryTest', 10), ('ModifierLifecycleTest', 4)]:
+          for name, minimum in [('BrandingTest', 2), ('VoiceInputControllerTest', 24), ('VoiceDictationSessionTest', 29), ('VoiceTextBufferTest', 15), ('ThemeGalleryTest', 10), ('ModifierLifecycleTest', 4)]:
               selected = [c for c in cases if c.get('classname', '').endswith('.' + name)]
               assert len(selected) >= minimum, f'{name} tests missing: {len(selected)}'
               assert all(c.find('failure') is None and c.find('error') is None and c.find('skipped') is None for c in selected), f'{name} failed/skipped'
@@ -223,6 +223,7 @@ jobs:
             adb shell ime enable helium314.keyboard.compactthemesdebug/helium314.keyboard.latin.LatinIME
             adb shell ime set helium314.keyboard.compactthemesdebug/helium314.keyboard.latin.LatinIME
             bash heliboard-inline-voice/themes/emulator-test.sh helium314.keyboard.compactthemesdebug
+            bash heliboard-inline-voice/voice/emulator-test.sh
       - name: Prepare downloads after all automated Android gates pass
         run: |
           for variant in debug themes; do
@@ -269,6 +270,13 @@ jobs:
         with:
           name: HeliBoard-emulator-runtime-log
           path: heliboard-inline-voice/test-results/emulator-logcat.txt
+          if-no-files-found: ignore
+      - name: Upload real-editor voice regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KEYNOVA-voice-editor-verification
+          path: heliboard-inline-voice/test-results/voice/**
           if-no-files-found: ignore
       - name: Preserve build failure reports
         if: failure()

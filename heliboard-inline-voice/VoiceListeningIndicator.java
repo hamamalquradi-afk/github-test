@@ -24,14 +24,16 @@ import android.widget.TextView;
  * Restores the old strip untouched when dictation stops.
  */
 final class VoiceListeningIndicator extends LinearLayout {
-    private static final int RECONNECTING = 1;
-    private static final int LISTENING = 2;
     private static final int GREEN = Color.rgb(29, 171, 101);
     private static final int AMBER = Color.rgb(230, 153, 37);
 
     private final ImageButton microphone;
     private final TextView status;
     private final Waveform waveform;
+    private VoiceDictationSession.State state = VoiceDictationSession.State.RECONNECTING;
+    private final Runnable clearLevel = this::resetWaveform;
+
+    private void resetWaveform() { waveform.reset(); }
 
     VoiceListeningIndicator(Context context, Runnable onStop) {
         super(context);
@@ -62,7 +64,7 @@ final class VoiceListeningIndicator extends LinearLayout {
 
         waveform = new Waveform(context);
         addView(waveform, new LayoutParams(dp(80), LayoutParams.MATCH_PARENT));
-        setState(RECONNECTING);
+        setState(VoiceDictationSession.State.RECONNECTING);
     }
 
     private int dp(float value) {
@@ -82,25 +84,46 @@ final class VoiceListeningIndicator extends LinearLayout {
     }
 
     void hide() {
+        removeCallbacks(clearLevel);
         if (getParent() instanceof ViewGroup) {
             ((ViewGroup) getParent()).removeView(this);
         }
         waveform.reset();
     }
 
-    void setState(int state) {
-        final boolean ready = state == LISTENING;
-        status.setText(ready ? "جار الاستماع..." : "جار إعادة الاستماع...");
-        microphone.setColorFilter(ready ? GREEN : AMBER);
+    void setState(VoiceDictationSession.State state) {
+        this.state = state;
+        final boolean ready = state == VoiceDictationSession.State.LISTENING
+                || state == VoiceDictationSession.State.SPEECH;
+        status.setText(state == VoiceDictationSession.State.SPEECH ? "تم اكتشاف الكلام..."
+                : ready ? "جار الاستماع..."
+                : state == VoiceDictationSession.State.ERROR ? "تعذر الإملاء — اضغط للمحاولة"
+                : state == VoiceDictationSession.State.STOPPED ? "الإملاء متوقف" : "جار إعادة الاتصال...");
+        microphone.setColorFilter(state == VoiceDictationSession.State.ERROR ? Color.RED : ready ? GREEN : AMBER);
         waveform.setActive(ready);
-        if (!ready) waveform.reset();
-        microphone.setContentDescription(ready
-                ? "الميكروفون يستمع، اضغط لإيقافه"
-                : "الميكروفون يعيد الاتصال، اضغط لإيقافه");
+        if (!ready) { removeCallbacks(clearLevel); waveform.reset(); }
+        microphone.setContentDescription(description(state));
+    }
+
+    void setTranscript(String partial) {
+        if (!partial.isEmpty()) status.setText(partial);
+        status.setContentDescription(description(state) + (partial.isEmpty() ? "" : ": " + partial));
+    }
+
+    static String description(VoiceDictationSession.State state) {
+        switch (state) {
+            case LISTENING: return "الميكروفون يستمع، اضغط لإيقافه";
+            case SPEECH: return "تم اكتشاف الكلام، اضغط لإيقاف الإملاء";
+            case RECONNECTING: return "الميكروفون يعيد الاتصال، اضغط لإيقافه";
+            case ERROR: return "تعذر الإملاء، اضغط للمحاولة مجددًا";
+            default: return "الإملاء متوقف، اضغط للتحدث";
+        }
     }
 
     void setRms(float rms) {
         waveform.setLevel(normalizeRms(rms));
+        removeCallbacks(clearLevel);
+        postDelayed(clearLevel, 300); // a stale RMS callback cannot imply ongoing audio
     }
 
     /** No fabricated motion: only actual recognition-service RMS moves bars. */

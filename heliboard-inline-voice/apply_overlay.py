@@ -38,7 +38,7 @@ s = replace_once(s,
     "    void onFinishInputViewInternal(final boolean finishingInput) {\n"
     "        super.onFinishInputView(finishingInput);",
     "    void onFinishInputViewInternal(final boolean finishingInput) {\n"
-    "        if (mInlineVoiceInput != null) mInlineVoiceInput.stop();\n"
+    "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputFinished();\n"
     "        super.onFinishInputView(finishingInput);",
     "input view lifecycle")
 s = replace_once(s,
@@ -51,6 +51,45 @@ s = replace_once(s,
     "            return; // never send VOICE_INPUT to the normal key processing path\n"
     "        }",
     "voice key handler")
+# Voice owns only buffered hypotheses and append-only phrase commits. Keep
+# upstream recorrection from installing composing spans over finalized speech.
+for old, new, label in (
+    ("        updateSuggestionStripView(view);\n    }",
+     "        updateSuggestionStripView(view);\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.refreshView();\n    }", "reattach voice strip"),
+    ("        SettingsValues settingsValues = mSettings.getCurrent();\n        Log.i(TAG, \"onConfigurationChanged\");",
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.suspendForRecreation();\n"
+     "        SettingsValues settingsValues = mSettings.getCurrent();\n        Log.i(TAG, \"onConfigurationChanged\");", "voice rotation boundary"),
+    ("        mHandler.onStartInput(editorInfo, restarting);",
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputStarted(restarting);\n"
+     "        mHandler.onStartInput(editorInfo, restarting);", "editor identity boundary"),
+    ("        mStatsUtilsManager.onStartInputView();",
+     "        mStatsUtilsManager.onStartInputView();\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputViewStarted();", "resume recreated input view"),
+    ("        super.onFinishInput();",
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputFinished();\n"
+     "        super.onFinishInput();", "finish editor boundary"),
+    ("        super.onWindowHidden();",
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputFinished();\n"
+     "        super.onWindowHidden();", "release hidden microphone"),
+    ("                composingSpanStart, composingSpanEnd);\n        if (DebugFlags.DEBUG_ENABLED)",
+     "                composingSpanStart, composingSpanEnd);\n"
+     "        if (mInlineVoiceInput != null && mInlineVoiceInput.onUpdateSelection()) return;\n"
+     "        if (DebugFlags.DEBUG_ENABLED)", "voice selection safety"),
+    ("        InputTransaction completeInputTransaction =\n                mInputLogic.onCodeInput",
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.stop();\n"
+     "        InputTransaction completeInputTransaction =\n                mInputLogic.onCodeInput", "manual key boundary"),
+    ("        if (rawText == null) return;",
+     "        if (rawText == null) return;\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.stop();", "manual text boundary"),
+    ("    public void onStartBatchInput() {",
+     "    public void onStartBatchInput() {\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.stop();", "gesture boundary"),
+    ("                case MSG_RESUME_SUGGESTIONS:\n",
+     "                case MSG_RESUME_SUGGESTIONS:\n"
+     "                    if (latinIme.mInlineVoiceInput != null && latinIme.mInlineVoiceInput.isEnabled()) break;\n", "suppress voice recorrection"),
+):
+    s = replace_once(s, old, new, label)
 latin.write_text(s, encoding="utf-8")
 
 # Finishing/reloading the IME must clear both the effective mask and latched
@@ -90,7 +129,8 @@ m = replace_once(m,
     "speech recognizer visibility")
 manifest.write_text(m, encoding="utf-8")
 
-for name in ("VoiceInputController.java", "VoiceListeningIndicator.java", "VoicePermissionActivity.java"):
+for name in ("VoiceInputController.java", "VoiceListeningIndicator.java", "VoicePermissionActivity.java",
+             "VoiceDictationSession.java", "VoiceTextBuffer.java"):
     shutil.copy2(overlay / name, src / name)
 
 
@@ -226,8 +266,8 @@ for row in ("keys", "keys2"):
         f"        assertEquals(10, {row}[2].count {{ !it.isSpacer }})",
         "German key count excluding alignment spacers " + row)
 parser_test.write_text(test_source, encoding="utf-8")
-shutil.copy2(overlay / "VoiceInputControllerTest.java",
-             root / "app/src/test/java/helium314/keyboard/latin/VoiceInputControllerTest.java")
+for name in ("VoiceInputControllerTest.java", "VoiceDictationSessionTest.java", "VoiceTextBufferTest.java"):
+    shutil.copy2(overlay / name, root / "app/src/test/java/helium314/keyboard/latin" / name)
 
 print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
@@ -239,3 +279,19 @@ subprocess.run([sys.executable, str(overlay / "themes/apply_themes.py"), str(roo
 
 # Phase 01 identity is applied last so both existing build variants retain branding.
 subprocess.run([sys.executable, str(overlay / "branding/apply_branding.py"), str(root)], check=True)
+
+# Voice regressions run inside each actual minified APK against Android's
+# Editable/InputConnection, without replacing the device recognition service.
+for variant in ("debug", "themes"):
+    destination = root / f"app/src/{variant}/java/helium314/keyboard/latin/VoiceSmokeInstrumentation.java"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(overlay / "voice/debug/VoiceSmokeInstrumentation.java", destination)
+    debug_manifest = root / f"app/src/{variant}/AndroidManifest.xml"
+    value = debug_manifest.read_text()
+    value = replace_once(value, "    <application>",
+        '    <instrumentation android:name="helium314.keyboard.latin.VoiceSmokeInstrumentation"\n'
+        '        android:targetPackage="${applicationId}" android:functionalTest="true" />\n'
+        '    <application>', "voice instrumentation " + variant)
+    debug_manifest.write_text(value)
+with (root / "app/proguard-rules.pro").open("a") as rules:
+    rules.write("\n-keep class helium314.keyboard.latin.VoiceSmokeInstrumentation { *; }\n")
