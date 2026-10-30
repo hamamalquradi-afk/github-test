@@ -66,11 +66,12 @@ latin = (app / "src/main/java/helium314/keyboard/latin/LatinIME.java").read_text
 assert "mInlineVoiceInput.toggle(" in latin
 assert "mRichImm.switchToShortcutIme(this)" not in latin
 voice = (overlay / "VoiceInputController.java").read_text()
-# Partials are UI-owned buffers; finalized phrases are append-only. Never
-# regress to cursor-relative deletion or editor-owned composing replacements.
+# Only the current verified composing span is mutable. Sealed phrases remain
+# append-only; never reintroduce cursor-relative deletion or selection changes.
 assert "RecognizerIntent.EXTRA_PARTIAL_RESULTS, true" in voice
 assert "listener.partial(bestResult(results))" in voice
-assert ".setComposingText(" not in voice
+assert "targetConnection.setComposingText(text, 1)" in voice
+assert "ownsComposition(composingStart" not in voice  # checks live in VoiceTextBuffer
 assert ".deleteSurroundingText(" not in voice and ".setSelection(" not in voice
 assert "getExtractedText(request, 0)" in voice
 assert "extracted.selectionStart != extracted.selectionEnd" in voice
@@ -83,11 +84,12 @@ assert "++generation;" in manager and "cancelRestart()" in manager
 assert "Math.min(30000" in manager and "60000" in manager
 assert "hypothesis = value;" in manager and "host.append(phrase)" in manager
 buffer = (overlay / "VoiceTextBuffer.java").read_text()
-assert ".deleteSurroundingText(" not in buffer and ".setComposingText(" not in buffer
+assert ".deleteSurroundingText(" not in buffer and ".setSelection(" not in buffer
+assert "editor.compose(inserted)" in buffer and "editor.ownsComposition(" in buffer
 assert "matchesSnapshot(editor.snapshot())" in buffer and "expected.same(snapshot)" in buffer
-assert "String insertion = prefix + value;" in buffer and "String suffix =" not in buffer
+assert "String inserted = insertion(" in buffer and "String suffix =" not in buffer
 assert "textBuffer.matchesSnapshot(readSnapshotFrom(current))" in voice
-assert "editor.finishComposing()" in buffer and "after.cursor != before.cursor + insertion.length()" in buffer
+assert "editor.finishComposing()" in buffer and "after.cursor != before.cursor + inserted.length()" in buffer
 assert "indicator.setRms(level)" in voice and "indicator.setTranscript(partial)" in voice
 assert "new VoiceListeningIndicator(ime, () -> toggle(null))" in voice
 for lifecycle in ("suspendForRecreation()", "onInputStarted(restarting)", "onInputViewStarted()", "onUpdateSelection()"):
@@ -106,7 +108,18 @@ for variant in ("debug", "themes"):
                for n in test_manifest.findall("instrumentation"))
     assert (app / f"src/{variant}/java/helium314/keyboard/latin/VoiceSmokeInstrumentation.java").read_bytes() == (
         overlay / "voice/debug/VoiceSmokeInstrumentation.java").read_bytes()
-print("PASS: append-only speech boundaries; session-managed mic/recreation; RMS waveform; both voice instrumentations")
+print("PASS: verified live composition; append-only sealed text; session-managed mic; both real-editor tests")
+# Candidate count is persistent and affects only the existing suggestion strip.
+suggestion_view = (app / "src/main/java/helium314/keyboard/latin/suggestions/SuggestionStripView.kt").read_text()
+correction_screen = (app / "src/main/java/helium314/keyboard/settings/screens/TextCorrectionScreen.kt").read_text()
+assert "HorizontalScrollView" in suggestion_view and "showKeynovaSuggestions" in suggestion_view
+assert "keynova_suggestion_count" in suggestion_view and "keynova_suggestion_count" in correction_screen
+assert 'getString("keynova_suggestion_count", "10")' in suggestion_view
+for qualifier in ("values", "values-ar"):
+    resource = app / "src/main/res" / qualifier / "keynova_suggestions.xml"
+    assert resource.exists()
+    assert ET.parse(resource).getroot().find("string").get("name") == "keynova_suggestion_count"
+print("PASS: scrollable suggestions 5/7/10 with persisted default 10, bilingual settings")
 
 # Both existing package variants must retain the approved bilingual text identity.
 for variant in ("debug", "themes"):
