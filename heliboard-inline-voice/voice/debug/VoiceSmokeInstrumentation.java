@@ -9,6 +9,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.BaseInputConnection;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import java.util.ArrayList;
@@ -44,6 +45,11 @@ public final class VoiceSmokeInstrumentation extends Instrumentation {
             }
             @Override public boolean finishComposing() { return connection.finishComposingText(); }
             @Override public boolean append(String value) { return connection.commitText(value, 1); }
+            @Override public boolean compose(String value) { return connection.setComposingText(value, 1); }
+            @Override public boolean ownsComposition(int start, int end) {
+                return BaseInputConnection.getComposingSpanStart(editor.getText()) == start
+                        && BaseInputConnection.getComposingSpanEnd(editor.getText()) == end;
+            }
         });
         Clock clock = new Clock();
         VoiceDictationSession.Listener[] current = new VoiceDictationSession.Listener[1];
@@ -57,13 +63,16 @@ public final class VoiceSmokeInstrumentation extends Instrumentation {
         }, new VoiceDictationSession.Host() {
             @Override public boolean valid() { return buffer.valid(); }
             @Override public boolean append(String phrase) { return buffer.append(phrase); }
-            @Override public void partial(String phrase) { }
+            @Override public void partial(String phrase) {
+                if (!phrase.isEmpty()) check(buffer.preview(phrase), "live composing span rejected");
+            }
             @Override public void state(VoiceDictationSession.State state) { }
             @Override public void rms(float level) { }
         });
         voice.start();
         current[0].partial("مرحبا كيف");
-        check(editor.getText().toString().equals("Existing: "), "partial entered immutable editor");
+        check(editor.getText().toString().equals("Existing: مرحبا كيف"),
+                "partial did not appear directly in the actual Android EditText");
         current[0].result("مرحبا كيف حالك"); clock.advance(350);
         check(editor.getText().toString().equals("Existing: مرحبا كيف حالك"), "first phrase incorrect");
         // A real composing span over previous speech used to make commitText
@@ -92,9 +101,13 @@ public final class VoiceSmokeInstrumentation extends Instrumentation {
             expected += " word" + i;
             check(editor.getText().toString().equals(expected), "old text lost in cycle " + i);
         }
-        current[0].partial("must not overwrite"); editor.setSelection(3);
+        current[0].partial("must not overwrite");
+        check(editor.getText().toString().equals(expected + " must not overwrite"),
+                "live partial missing from real editor");
+        editor.setSelection(3);
         current[0].result("unsafe");
-        check(editor.getText().toString().equals(expected), "moved caret modified committed text");
+        check(editor.getText().toString().equals(expected + " must not overwrite"),
+                "moved caret modified previously sealed text");
         check(!voice.isEnabled() && active[0] == 0, "unsafe editor did not stop capture");
         FrameLayout first = new FrameLayout(getTargetContext());
         FrameLayout recreated = new FrameLayout(getTargetContext());
