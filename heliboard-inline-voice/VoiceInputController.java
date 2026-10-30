@@ -71,12 +71,14 @@ final class VoiceInputController {
             @Override public boolean valid() { return isTargetActive() && textBuffer != null && textBuffer.valid(); }
             @Override public boolean append(String phrase) {
                 writing = true;
-                try { return textBuffer != null && textBuffer.append(phrase); }
-                finally {
+                boolean accepted = false;
+                try {
+                    accepted = textBuffer != null && textBuffer.append(phrase);
+                    return accepted;
+                } finally {
                     writing = false;
-                    // Keep upstream caches aligned, without starting recorrection
-                    // over immutable dictated words during the next session.
-                    syncInputLogic();
+                    // Never finish upstream composing state after a rejected commit.
+                    if (accepted) syncInputLogic();
                 }
             }
             @Override public void partial(String phrase) { partial = phrase; refreshView(); }
@@ -275,7 +277,10 @@ final class VoiceInputController {
         // the new anchor has been checked. Finishing upstream input here can
         // interfere with the in-flight commit; synchronize once after append.
         if (writing) return true;
-        if (textBuffer == null || !isTargetActive() || !textBuffer.valid()) session.abort();
+        if (textBuffer == null || !isTargetActive() || !textBuffer.valid()) {
+            session.abort();
+            return false; // Let upstream process the selection after voice abort.
+        }
         return true;
     }
 
