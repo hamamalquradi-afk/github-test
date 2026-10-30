@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - heliboard-inline-voice-v1
+      - keynova-voice-p0-repair
     paths:
       - heliboard-inline-voice/**
       - .github/workflows/heliboard-inline-voice.yml
