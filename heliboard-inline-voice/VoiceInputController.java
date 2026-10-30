@@ -17,6 +17,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.text.InputType;
+import android.text.Spanned;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -81,10 +82,23 @@ final class VoiceInputController {
                     if (accepted) syncInputLogic();
                 }
             }
-            @Override public void partial(String phrase) { partial = phrase; refreshView(); }
+            @Override public void partial(String phrase) {
+                // Hypotheses are displayed inside the active editor, never
+                // as a message draft in the suggestion/toolbar strip.
+                if (!phrase.isEmpty() && textBuffer != null) {
+                    writing = true;
+                    boolean accepted;
+                    try { accepted = textBuffer.preview(phrase); }
+                    finally { writing = false; }
+                    if (!accepted) { session.abort(); return; }
+                }
+                partial = "";
+                refreshView();
+            }
             @Override public void state(VoiceDictationSession.State state) {
                 render(state);
                 if (state == VoiceDictationSession.State.ERROR) {
+                    if (textBuffer != null) textBuffer.abandon();
                     recreating = false;
                     handler.removeCallbacks(recreationTimeout);
                     targetConnection = null;
@@ -131,6 +145,24 @@ final class VoiceInputController {
             }
             @Override public boolean append(String text) {
                 return isTargetActive() && targetConnection.commitText(text, 1);
+            }
+            @Override public boolean compose(String text) {
+                return isTargetActive() && targetConnection.setComposingText(text, 1);
+            }
+            @Override public boolean ownsComposition(int start, int end) {
+                if (!isTargetActive() || end <= start) return false;
+                // Require the exact Android composing span, not merely a
+                // visually identical suffix that might be previously sealed.
+                CharSequence styled = targetConnection.getTextBeforeCursor(
+                        Math.min(4096, end - start), InputConnection.GET_TEXT_WITH_STYLES);
+                if (!(styled instanceof Spanned) || styled.length() != end - start) return false;
+                Spanned spans = (Spanned) styled;
+                for (Object span : spans.getSpans(0, spans.length(), Object.class)) {
+                    if ((spans.getSpanFlags(span) & Spanned.SPAN_COMPOSING) != 0
+                            && spans.getSpanStart(span) == 0
+                            && spans.getSpanEnd(span) == spans.length()) return true;
+                }
+                return false;
             }
         });
         if (!textBuffer.valid()) {
@@ -239,9 +271,8 @@ final class VoiceInputController {
         return true;
     }
 
-    /** No cursor-relative deletion, selected-text replacement or composing span.
-     * If an editor cannot provide a collapsed absolute selection and surrounding
-     * context, voice fails closed rather than guessing where its words belong. */
+    /** The only mutable text is a bounded, verified Android composing span.
+     * A moved caret or changed editor fails closed; finalized text is immutable. */
     @Nullable private VoiceTextBuffer.Snapshot readSnapshot() {
         if (!isTargetActive()) return null;
         return readSnapshotFrom(targetConnection);
@@ -273,7 +304,7 @@ final class VoiceInputController {
     /** Return true to bypass recorrection while voice owns the editor. */
     boolean onUpdateSelection() {
         if (!session.isEnabled()) return false;
-        // commitText can synchronously dispatch a selection callback before
+        // commitText / setComposingText can dispatch selection synchronously before
         // the new anchor has been checked. Finishing upstream input here can
         // interfere with the in-flight commit; synchronize once after append.
         if (writing) return true;
