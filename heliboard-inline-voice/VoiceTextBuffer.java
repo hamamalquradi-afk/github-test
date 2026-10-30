@@ -33,7 +33,10 @@ final class VoiceTextBuffer {
         expected = editor.snapshot();
     }
 
-    boolean valid() { return expected != null && expected.same(editor.snapshot()); }
+    boolean valid() { return matchesSnapshot(editor.snapshot()); }
+
+    // Only a known, unchanged absolute caret may authorize connection rebinding.
+    boolean matchesSnapshot(Snapshot snapshot) { return expected != null && expected.same(snapshot); }
 
     boolean append(String phrase) {
         String value = cleanPhrase(phrase);
@@ -43,15 +46,20 @@ final class VoiceTextBuffer {
         // splitting text that the user did not ask dictation to edit.
         if (!expected.after.isEmpty() && word(expected.after.codePointAt(0))) return false;
         if (!editor.finishComposing() || !valid()) return false;
+        // A preexisting blank before a newly dictated punctuation mark cannot be
+        // removed without touching user text. Reject it rather than emit "word .".
+        if (!expected.before.isEmpty() && space(expected.before.codePointBefore(expected.before.length()))
+                && closing(value.codePointAt(0))) return false;
         String prefix = "";
         if (!expected.before.isEmpty()) {
             int last = expected.before.codePointBefore(expected.before.length());
             int first = value.codePointAt(0);
             if (!space(last) && !closing(first) && !opening(last)) prefix = " ";
         }
-        // Reuse whitespace already immediately after the insertion point.
-        String suffix = !expected.after.isEmpty() && space(expected.after.codePointAt(0)) ? "" : " ";
-        String insertion = prefix + value + suffix;
+        // Delimit only when the NEXT phrase is known. Trailing spaces made a
+        // later punctuation-only utterance become "word ." and could not be
+        // removed without rewriting previously committed text.
+        String insertion = prefix + value;
         Snapshot before = expected;
         if (!editor.append(insertion)) { expected = null; return false; }
         Snapshot after = editor.snapshot();
