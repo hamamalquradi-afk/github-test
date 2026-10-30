@@ -30,6 +30,63 @@ public class VoiceTextBufferTest {
             text.replace(from, to, value); start = end = from + value.length();
             composingStart = composingEnd = -1; return true;
         }
+        @Override public boolean compose(String value) {
+            if (failCommit) return false;
+            int from = composingStart >= 0 ? composingStart : start;
+            int to = composingStart >= 0 ? composingEnd : end;
+            text.replace(from, to, value);
+            start = end = from + value.length();
+            composingStart = from; composingEnd = end;
+            return true;
+        }
+        @Override public boolean ownsComposition(int from, int to) {
+            return composingStart == from && composingEnd == to && start == to;
+        }
+    }
+
+    @Test public void liveCumulativeHypothesesReplaceOnlyOwnedComposition() {
+        Editor editor = new Editor("kept ");
+        VoiceTextBuffer buffer = new VoiceTextBuffer(editor);
+        assertTrue(buffer.preview("I can"));
+        assertEquals("kept I can", editor.text.toString());
+        assertTrue(buffer.preview("I can right"));
+        assertEquals("kept I can right", editor.text.toString());
+        assertTrue(buffer.append("I can write"));
+        assertEquals("kept I can write", editor.text.toString());
+        assertEquals(-1, editor.composingStart);
+        assertTrue(buffer.preview("next"));
+        assertTrue(buffer.append("next."));
+        assertEquals("kept I can write next.", editor.text.toString());
+    }
+
+    @Test public void externalCompositionOwnershipLossCannotModifyEarlierText() {
+        Editor editor = new Editor("sealed ");
+        VoiceTextBuffer buffer = new VoiceTextBuffer(editor);
+        assertTrue(buffer.preview("provisional"));
+        editor.composingStart = 0; editor.composingEnd = 6;
+        assertFalse(buffer.preview("replacement"));
+        assertFalse(buffer.append("replacement"));
+        assertEquals("sealed provisional", editor.text.toString());
+    }
+
+    @Test public void movedCaretCannotReplaceComposingDraftOrSealedText() {
+        Editor editor = new Editor("previous ");
+        VoiceTextBuffer buffer = new VoiceTextBuffer(editor);
+        assertTrue(buffer.preview("hello"));
+        editor.start = editor.end = 3;
+        assertFalse(buffer.append("goodbye"));
+        assertEquals("previous hello", editor.text.toString());
+    }
+
+    @Test public void hundredCharacterStreamingPartialIsNotTruncated() {
+        Editor editor = new Editor("keep ");
+        VoiceTextBuffer buffer = new VoiceTextBuffer(editor);
+        String phrase = new String(new char[220]).replace('\0', 'ع');
+        assertTrue(buffer.preview(phrase));
+        assertTrue(buffer.preview(phrase + " جديد"));
+        assertTrue(buffer.append(phrase + " جديد"));
+        assertEquals("keep " + phrase + " جديد", editor.text.toString());
+        assertEquals(0, editor.commits);
     }
 
     @Test public void finalizedArabicEnglishAndMixedPhrasesAreImmutable() {
