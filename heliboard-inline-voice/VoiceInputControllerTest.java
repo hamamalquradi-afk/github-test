@@ -102,34 +102,34 @@ public class VoiceInputControllerTest {
     }
     @Test public void cumulativeArabicReplacesPreviewExactlyOnce() {
         partial("لكنها"); partial("لكنها في"); partial("لكنها في بعض الأوقات"); finish("لكنها في بعض الأوقات");
-        assertEquals("Existing: لكنها في بعض الأوقات ", text.toString());
+        assertEquals("Existing: لكنها في بعض الأوقات", text.toString());
         verify(editor, never()).setComposingText(any(), anyInt());
         verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void revisedEnglishFinalReplacesPartial() {
         partial("I can"); partial("I can right"); finish("I can write");
-        assertEquals("Existing: I can write ", text.toString());
+        assertEquals("Existing: I can write", text.toString());
     }
     @Test public void repeatedPartialIsNotAppended() {
         partial("hello"); partial("hello"); partial("hello"); finish("hello");
-        assertEquals("Existing: hello ", text.toString()); verify(editor, times(1)).commitText("hello ", 1);
+        assertEquals("Existing: hello", text.toString()); verify(editor, times(1)).commitText("hello", 1);
     }
     @Test public void stopDoesNotCommitPreviewAgain() {
-        partial("مرحبا"); voice.stop(); finish("مرحبا"); assertEquals("Existing: مرحبا ", text.toString());
+        partial("مرحبا"); voice.stop(); finish("مرحبا"); assertEquals("Existing: مرحبا", text.toString());
     }
     @Test public void silenceErrorSealsOldPhraseBeforeNewArabicSpeech() {
         partial("مرحبا"); partial("مرحبا كيف"); seal(); partial("حالك"); partial("حالك اليوم"); finish("حالك اليوم");
-        assertEquals("Existing: مرحبا كيف حالك اليوم ", text.toString());
+        assertEquals("Existing: مرحبا كيف حالك اليوم", text.toString());
         verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void repeatedEndCallbacksDoNotAddMultipleSpaces() {
         VoiceDictationSession.Listener old = listener;
         partial("hello"); seal(); old.error(VoiceDictationSession.Failure.SILENCE);
-        partial("world"); finish("world"); assertEquals("Existing: hello world ", text.toString());
+        partial("world"); finish("world"); assertEquals("Existing: hello world", text.toString());
     }
     @Test public void stoppingWhilePartialIsVisiblePreservesSentenceBoundary() {
         partial("first phrase"); voice.stop(); start(); partial("second phrase"); finish("second phrase");
-        assertEquals("Existing: first phrase second phrase ", text.toString());
+        assertEquals("Existing: first phrase second phrase", text.toString());
     }
     @Test public void emptySessionDoesNotInsertWhitespace() {
         seal(); voice.stop(); assertEquals("Existing: ", text.toString());
@@ -168,35 +168,84 @@ public class VoiceInputControllerTest {
         assertEquals("Existing: ", text.toString()); verifyNoInteractions(other);
     }
     @Test public void finalOnlyEngineAndNextUtteranceKeepBothPhrases() {
-        finish("hello"); restart(); partial("world"); finish("world"); assertEquals("Existing: hello world ", text.toString());
+        finish("hello"); restart(); partial("world"); finish("world"); assertEquals("Existing: hello world", text.toString());
     }
     @Test public void failedDeletionDoesNotAppendDuplicate() {
         // A deletion-incapable editor now works: voice never asks it to delete.
         when(editor.deleteSurroundingText(anyInt(), eq(0))).thenReturn(false);
         partial("hello"); partial("hello world"); finish("hello world");
-        assertEquals("Existing: hello world ", text.toString()); verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
+        assertEquals("Existing: hello world", text.toString()); verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void stoppedSessionRejectsLateCallbacks() {
         voice.stop(); partial("stale"); finish("stale"); assertFalse(voice.isEnabled()); assertEquals("Existing: ", text.toString());
     }
     @Test public void editorOwnedStaleCompositionCannotReplaceCommittedSpeech() {
         finish("first"); restart(); model.composingStart = 10; model.composingEnd = text.length();
-        partial("second"); finish("second"); assertEquals("Existing: first second ", text.toString());
+        partial("second"); finish("second"); assertEquals("Existing: first second", text.toString());
     }
     @Test public void realCursorSelectionCannotAuthorizeOldSuffixReplacement() {
         finish("hello hello"); restart(); model.start = model.end = 15;
         voice.onUpdateSelection(); partial("new"); finish("new");
-        assertEquals("Existing: hello hello ", text.toString()); assertFalse(voice.isEnabled());
+        assertEquals("Existing: hello hello", text.toString()); assertFalse(voice.isEnabled());
     }
     @Test public void viewRecreationPreservesEnabledModeAndReattachesStrip() {
         partial("before"); voice.suspendForRecreation(); voice.refreshView();
         assertTrue(voice.isEnabled()); voice.onInputFinished(); assertTrue(voice.isEnabled());
         voice.onInputStarted(true); voice.onInputViewStarted(); restart();
-        partial("after"); finish("after"); assertEquals("Existing: before after ", text.toString());
+        partial("after"); finish("after"); assertEquals("Existing: before after", text.toString());
     }
     @Test public void hiddenKeyboardAndServiceShutdownReleaseUserMode() {
         partial("saved"); voice.onInputFinished(); voice.destroy(); restart();
-        assertFalse(voice.isEnabled()); assertEquals("Existing: saved ", text.toString());
+        assertFalse(voice.isEnabled()); assertEquals("Existing: saved", text.toString());
+    }
+    @Test public void punctuationAfterFinalPhraseDoesNotGainLeadingSpace() {
+        finish("Hello"); restart(); finish("."); restart(); finish("next");
+        assertEquals("Existing: Hello. next", text.toString());
+        verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
+    }
+    @Test public void renewedConnectionWrapperInSameVerifiedEditorKeepsDictation() {
+        InputConnection second = mock(InputConnection.class);
+        when(second.commitText(any(CharSequence.class), eq(1)))
+                .thenAnswer(call -> model.append(call.getArgument(0).toString()));
+        when(second.finishComposingText()).thenAnswer(call -> model.finishComposing());
+        when(second.getTextBeforeCursor(anyInt(), eq(0))).thenAnswer(call -> {
+            int length = call.getArgument(0);
+            return text.substring(Math.max(0, model.start - length), model.start);
+        });
+        when(second.getTextAfterCursor(anyInt(), eq(0))).thenAnswer(call -> {
+            int length = call.getArgument(0);
+            return text.substring(model.end, Math.min(text.length(), model.end + length));
+        });
+        when(second.getExtractedText(any(), eq(0))).thenAnswer(call -> {
+            ExtractedText extracted = new ExtractedText();
+            extracted.text = text.toString(); extracted.selectionStart = model.start;
+            extracted.selectionEnd = model.end; extracted.startOffset = 0;
+            return extracted;
+        });
+        doReturn(second).when(ime).getCurrentInputConnection();
+        partial("rebound"); finish("rebound");
+        assertTrue(voice.isEnabled());
+        assertEquals("Existing: rebound", text.toString());
+        verify(second, times(1)).commitText("rebound", 1);
+    }
+    @Test public void identicalFieldMetadataButNewEditorCannotReceiveOldText() {
+        EditorInfo otherInfo = new EditorInfo();
+        otherInfo.inputType = InputType.TYPE_CLASS_TEXT;
+        otherInfo.packageName = "test.editor"; otherInfo.fieldId = 7;
+        doReturn(otherInfo).when(ime).getCurrentInputEditorInfo();
+        InputConnection other = mock(InputConnection.class);
+        doReturn(other).when(ime).getCurrentInputConnection();
+        partial("should not transfer"); finish("should not transfer");
+        assertEquals("Existing: ", text.toString());
+        assertFalse(voice.isEnabled()); verifyNoInteractions(other);
+    }
+    @Test public void revokedAudioPermissionStopsBeforeFinalCommit() {
+        partial("private");
+        doReturn(PackageManager.PERMISSION_DENIED).when(ime)
+                .checkSelfPermission(Manifest.permission.RECORD_AUDIO);
+        finish("private");
+        assertEquals("Existing: ", text.toString());
+        assertFalse(voice.isEnabled());
     }
     @Test public void normalErrorsDoNotBecomeUnrecoverableErrors() {
         assertEquals(VoiceDictationSession.Failure.SILENCE, VoiceInputController.classifyError(SpeechRecognizer.ERROR_NO_MATCH));
