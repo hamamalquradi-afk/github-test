@@ -166,6 +166,6 @@ final class VoiceTextBuffer {
         return Character.isLetterOrDigit(c) || type == Character.NON_SPACING_MARK
                 || type == Character.COMBINING_SPACING_MARK;
     }
-    private static boolean closing(int c) { return ".,!?;:،؛؟)]}»\\"".indexOf(c) >= 0; }
+    private static boolean closing(int c) { return ".,!?;:،؛؟)]}»\"".indexOf(c) >= 0; }
     private static boolean opening(int c) { return "([{«".indexOf(c) >= 0; }
 }
