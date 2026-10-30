@@ -7,6 +7,8 @@ import android.widget.FrameLayout;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.InputConnection;
@@ -26,7 +28,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /** Android adapter against realistic selection/composition-aware editor mocks.
- * Old coverage is retained; hypotheses now stay in the live strip until sealed. */
+ * Voice hypotheses are editor composing text; only the final text becomes permanent. */
 @RunWith(RobolectricTestRunner.class)
 @Config(shadows = {ShadowInputMethodManager2.class, ShadowProximityInfo.class})
 public class VoiceInputControllerTest {
@@ -48,6 +50,10 @@ public class VoiceInputControllerTest {
         doReturn(null).when(ime).getWindow();
         when(editor.commitText(any(CharSequence.class), eq(1))).thenAnswer(call -> model.append(call.getArgument(0).toString()));
         when(editor.finishComposingText()).thenAnswer(call -> model.finishComposing());
+        when(editor.setComposingText(any(CharSequence.class), eq(1)))
+                .thenAnswer(call -> model.compose(call.getArgument(0).toString()));
+        when(editor.getTextBeforeCursor(anyInt(), eq(InputConnection.GET_TEXT_WITH_STYLES)))
+                .thenAnswer(call -> composingStyledText(call.getArgument(0)));
         when(editor.getTextBeforeCursor(anyInt(), eq(0))).thenAnswer(call -> {
             int length = call.getArgument(0);
             return text.substring(Math.max(0, model.start - length), model.start);
@@ -85,6 +91,15 @@ public class VoiceInputControllerTest {
     }
     private void seal() { listener.error(VoiceDictationSession.Failure.SILENCE); restart(); }
 
+    private CharSequence composingStyledText(int maxLength) {
+        int from = Math.max(0, model.start - maxLength);
+        SpannableString styled = new SpannableString(text.substring(from, model.start));
+        if (model.composingStart >= from && model.composingEnd == model.start) {
+            styled.setSpan(new Object(), model.composingStart - from, styled.length(),
+                    Spanned.SPAN_COMPOSING | Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return styled;
+    }
     @Test public void recognitionRequestsLongerSilenceWithoutDelayingShortPhrases() {
         Intent intent = VoiceInputController.createDictationIntent(Locale.ENGLISH);
         assertEquals(RecognizerIntent.ACTION_RECOGNIZE_SPEECH, intent.getAction());
@@ -103,16 +118,18 @@ public class VoiceInputControllerTest {
     @Test public void cumulativeArabicReplacesPreviewExactlyOnce() {
         partial("لكنها"); partial("لكنها في"); partial("لكنها في بعض الأوقات"); finish("لكنها في بعض الأوقات");
         assertEquals("Existing: لكنها في بعض الأوقات", text.toString());
-        verify(editor, never()).setComposingText(any(), anyInt());
+        verify(editor, times(4)).setComposingText(any(CharSequence.class), eq(1));
         verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void revisedEnglishFinalReplacesPartial() {
-        partial("I can"); partial("I can right"); finish("I can write");
+        partial("I can"); assertEquals("Existing: I can", text.toString());
+        partial("I can right"); assertEquals("Existing: I can right", text.toString());
+        finish("I can write");
         assertEquals("Existing: I can write", text.toString());
     }
     @Test public void repeatedPartialIsNotAppended() {
         partial("hello"); partial("hello"); partial("hello"); finish("hello");
-        assertEquals("Existing: hello", text.toString()); verify(editor, times(1)).commitText("hello", 1);
+        assertEquals("Existing: hello", text.toString()); verify(editor, never()).commitText(any(), anyInt());
     }
     @Test public void stopDoesNotCommitPreviewAgain() {
         partial("مرحبا"); voice.stop(); finish("مرحبا"); assertEquals("Existing: مرحبا", text.toString());
@@ -136,7 +153,7 @@ public class VoiceInputControllerTest {
     }
     @Test public void cursorChangeNeverDeletesEarlierTextDuringSeal() {
         partial("مرحبا"); text.append("manually entered"); model.start = model.end = text.length(); seal();
-        assertEquals("Existing: manually entered", text.toString());
+        assertEquals("Existing: مرحباmanually entered", text.toString());
         verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void waveformInputIsClampedAndRejectsInvalidLevels() {
@@ -156,16 +173,16 @@ public class VoiceInputControllerTest {
     }
     @Test public void changedCursorTextIsNeverDeleted() {
         partial("hello"); text.append("manual edit"); model.start = model.end = text.length(); partial("hello world");
-        assertEquals("Existing: manual edit", text.toString()); verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
+        assertEquals("Existing: hellomanual edit", text.toString()); verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void unsupportedSurroundingTextStopsSafely() {
         partial("hello"); when(editor.getTextBeforeCursor(anyInt(), eq(0))).thenReturn(null); finish("hello world");
-        assertEquals("Existing: ", text.toString()); verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
+        assertEquals("Existing: hello", text.toString()); verify(editor, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void changedEditorDoesNotReceiveOldTranscript() {
         partial("hello"); InputConnection other = mock(InputConnection.class);
         doReturn(other).when(ime).getCurrentInputConnection(); finish("hello world");
-        assertEquals("Existing: ", text.toString());
+        assertEquals("Existing: hello", text.toString());
         assertUnsafeEditorWritesAbsent(other);
         assertFalse("old dictation must stop when a new connection cannot be validated", voice.isEnabled());
     }
@@ -240,6 +257,10 @@ public class VoiceInputControllerTest {
         when(second.commitText(any(CharSequence.class), eq(1)))
                 .thenAnswer(call -> model.append(call.getArgument(0).toString()));
         when(second.finishComposingText()).thenAnswer(call -> model.finishComposing());
+        when(second.setComposingText(any(CharSequence.class), eq(1)))
+                .thenAnswer(call -> model.compose(call.getArgument(0).toString()));
+        when(second.getTextBeforeCursor(anyInt(), eq(InputConnection.GET_TEXT_WITH_STYLES)))
+                .thenAnswer(call -> composingStyledText(call.getArgument(0)));
         when(second.getTextBeforeCursor(anyInt(), eq(0))).thenAnswer(call -> {
             int length = call.getArgument(0);
             return text.substring(Math.max(0, model.start - length), model.start);
@@ -258,7 +279,8 @@ public class VoiceInputControllerTest {
         partial("rebound"); finish("rebound");
         assertTrue(voice.isEnabled());
         assertEquals("Existing: rebound", text.toString());
-        verify(second, times(1)).commitText("rebound", 1);
+        verify(second, times(2)).setComposingText(any(CharSequence.class), eq(1));
+        verify(second, never()).deleteSurroundingText(anyInt(), anyInt());
     }
     @Test public void identicalFieldMetadataButNewEditorCannotReceiveOldText() {
         EditorInfo otherInfo = new EditorInfo();
@@ -299,7 +321,7 @@ public class VoiceInputControllerTest {
         doReturn(PackageManager.PERMISSION_DENIED).when(ime)
                 .checkSelfPermission(Manifest.permission.RECORD_AUDIO);
         finish("private");
-        assertEquals("Existing: ", text.toString());
+        assertEquals("Existing: private", text.toString());
         assertFalse(voice.isEnabled());
     }
     @Test public void normalErrorsDoNotBecomeUnrecoverableErrors() {
