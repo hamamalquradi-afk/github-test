@@ -149,6 +149,7 @@ final class VoiceDictationSession {
                     if (value.isEmpty() || value.equals(hypothesis)) return;
                     hypothesis = value; // cumulative/revised hypotheses replace ONLY this buffer
                     host.partial(value);
+                    if (!current()) return; // editor may have aborted an unsafe composition
                     show(State.SPEECH);
                     arm(token, PARTIAL_IDLE_MS);
                 }

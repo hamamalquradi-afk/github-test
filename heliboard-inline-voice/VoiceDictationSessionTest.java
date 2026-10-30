@@ -34,6 +34,58 @@ public class VoiceDictationSessionTest {
         assertEquals("", host.text.toString());
     }
 
+    @Test public void silenceSixtySecondsRecyclesServiceButKeepsIntent() {
+        listener().ready(); clock.advance(60000);
+        assertTrue(voice.isEnabled());
+        assertTrue(provider.listeners.size() > 1);
+        assertEquals("", host.text.toString());
+        listener().partial("after one minute"); listener().result("after one minute");
+        assertEquals("after one minute ", host.text.toString());
+    }
+
+    @Test public void fiveSpeechPauseResumeCyclesPreserveEarlierFinals() {
+        StringBuilder expected = new StringBuilder();
+        long[] gaps = {3000, 10000, 30000, 60000, 3000};
+        for (int i = 0; i < gaps.length; i++) {
+            advanceProviderSilence(gaps[i]);
+            assertTrue("user dictation intent lost after silence " + gaps[i], voice.isEnabled());
+            assertEquals("recognizer not active before phrase " + i, 1, provider.active);
+            listener().ready();
+            assertEquals(VoiceDictationSession.State.LISTENING, voice.state());
+            phrase("phrase" + i);
+            expected.append("phrase").append(i).append(' ');
+            assertEquals("previous phrase lost or duplicated at cycle " + i,
+                    expected.toString(), host.text.toString());
+            assertEquals(i + 1, host.commits);
+        }
+        assertEquals(5, host.commits);
+        assertTrue(provider.maximumActive <= 1);
+        assertTrue("60-second silence never exercised recognizer renewal",
+                provider.listeners.size() > gaps.length);
+    }
+
+    /** A provider may endpoint after silence. A new recognizer cannot emit
+     * speech until its start() has actually run; never deliver callbacks to
+     * an old listener while the manager's restart/backoff timer is pending. */
+    private void advanceProviderSilence(long millis) {
+        long remaining = millis;
+        while (remaining > 0) {
+            assertEquals("speech delivered before recognizer start", 1, provider.active);
+            listener().ready();
+            long listening = Math.min(3000, remaining);
+            clock.advance(listening);
+            remaining -= listening;
+            if (remaining > 0) {
+                listener().error(VoiceDictationSession.Failure.SILENCE);
+                assertEquals(VoiceDictationSession.State.RECONNECTING, voice.state());
+                long restartDelay = Math.min(750, remaining);
+                clock.advance(restartDelay);
+                remaining -= restartDelay;
+            }
+            assertTrue(voice.isEnabled());
+        }
+    }
+
     @Test public void providerSilenceEndpointsDoNotDisableModeForThirtySeconds() {
         for (int i = 0; i < 30; i++) {
             listener().ready(); listener().error(VoiceDictationSession.Failure.SILENCE);

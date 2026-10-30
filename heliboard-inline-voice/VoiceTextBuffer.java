@@ -1,15 +1,19 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 package helium314.keyboard.latin;
 
-/** Append-only editor boundary. Partials NEVER enter editor-owned composing
- * spans. The indicator displays them until one immutable phrase is committed.
- * There is deliberately no delete, setSelection or replacement API here. */
+/**
+ * Stable words remain append-only. Only the currently owned Android composing
+ * range may be revised by a provider partial; it is never used for older text.
+ * If the editor loses composition ownership, all further writes fail closed.
+ */
 final class VoiceTextBuffer {
     static final int CONTEXT = 128;
     interface Editor {
         Snapshot snapshot();
         boolean finishComposing();
         boolean append(String text);
+        default boolean compose(String text) { return false; }
+        default boolean ownsComposition(int start, int end) { return false; }
     }
     static final class Snapshot {
         final int cursor;
@@ -25,41 +29,37 @@ final class VoiceTextBuffer {
                     && before.equals(other.before) && after.equals(other.after);
         }
     }
+
     private final Editor editor;
     private Snapshot expected;
+    private int composingStart = -1;
+    private Snapshot anchor;
+    private String composing = "";
 
     VoiceTextBuffer(Editor editor) {
         this.editor = editor;
         expected = editor.snapshot();
     }
 
-    boolean valid() { return expected != null && expected.same(editor.snapshot()); }
+    boolean valid() {
+        return matchesSnapshot(editor.snapshot()) && (composingStart < 0
+                || editor.ownsComposition(composingStart, expected.cursor));
+    }
 
-    boolean append(String phrase) {
-        String value = cleanPhrase(phrase);
-        if (value.isEmpty()) return true;
-        if (!valid()) return false;
-        // Reject insertion within a word, rather than moving the caret or
-        // splitting text that the user did not ask dictation to edit.
-        if (!expected.after.isEmpty() && word(expected.after.codePointAt(0))) return false;
-        if (!editor.finishComposing() || !valid()) return false;
-        String prefix = "";
-        if (!expected.before.isEmpty()) {
-            int last = expected.before.codePointBefore(expected.before.length());
-            int first = value.codePointAt(0);
-            if (!space(last) && !closing(first) && !opening(last)) prefix = " ";
-        }
-        // Reuse whitespace already immediately after the insertion point.
-        String suffix = !expected.after.isEmpty() && space(expected.after.codePointAt(0)) ? "" : " ";
-        String insertion = prefix + value + suffix;
-        Snapshot before = expected;
-        if (!editor.append(insertion)) { expected = null; return false; }
+    boolean matchesSnapshot(Snapshot snapshot) {
+        return expected != null && expected.same(snapshot);
+    }
+
+    private static String context(String before, String addition) {
+        String value = before + addition;
+        return value.substring(Math.max(0, value.length() - CONTEXT));
+    }
+
+    private boolean checkAfter(Snapshot before, String inserted) {
         Snapshot after = editor.snapshot();
-        String context = before.before + insertion;
-        context = context.substring(Math.max(0, context.length() - CONTEXT));
-        // A nonconforming editor must never cause a retry/duplicate commit.
-        if (after == null || after.cursor != before.cursor + insertion.length()
-                || !after.before.equals(context) || !after.after.equals(before.after)) {
+        if (after == null || after.cursor != before.cursor + inserted.length()
+                || !after.before.equals(context(before.before, inserted))
+                || !after.after.equals(before.after)) {
             expected = null;
             return false;
         }
@@ -67,11 +67,96 @@ final class VoiceTextBuffer {
         return true;
     }
 
+    private String insertion(Snapshot anchor, String phrase) {
+        if (phrase.isEmpty()) return "";
+        if (!anchor.after.isEmpty() && word(anchor.after.codePointAt(0))) return null;
+        if (!anchor.before.isEmpty() && space(anchor.before.codePointBefore(anchor.before.length()))
+                && closing(phrase.codePointAt(0))) return null;
+        if (anchor.before.isEmpty()) return phrase;
+        int last = anchor.before.codePointBefore(anchor.before.length());
+        int first = phrase.codePointAt(0);
+        return (!space(last) && !closing(first) && !opening(last) ? " " : "") + phrase;
+    }
+
+    /** Reflect recognition partials directly in the editor, but only while
+     * Android reports our exact composing span at the verified absolute caret.
+     * No deletion, setSelection or old phrase replacement is available. */
+    boolean preview(String phrase) {
+        String value = cleanPhrase(phrase);
+        if (value.isEmpty()) return true;
+        if (!valid()) return false;
+        if (composingStart < 0) {
+            if (!editor.finishComposing() || !valid()) return false;
+            Snapshot before = expected;
+            String inserted = insertion(before, value);
+            if (inserted == null) return false;
+            if (!editor.compose(inserted)) { expected = null; return false; }
+            if (!checkAfter(before, inserted)) return false;
+            composingStart = before.cursor;
+            anchor = before;
+            composing = inserted;
+        } else {
+            if (!editor.ownsComposition(composingStart, expected.cursor)) return false;
+            String inserted = insertion(anchor, value);
+            if (inserted == null) return false;
+            if (!editor.compose(inserted)) { expected = null; return false; }
+            Snapshot after = editor.snapshot();
+            if (after == null || after.cursor != composingStart + inserted.length()
+                    || !after.before.equals(context(anchor.before, inserted))
+                    || !after.after.equals(anchor.after)) { expected = null; return false; }
+            expected = after;
+            composing = inserted;
+        }
+        return editor.ownsComposition(composingStart, expected.cursor);
+    }
+
+    /** Seal one final phrase. If partial text is visible, update and finish
+     * only its verified composing span; otherwise commit as plain new text. */
+    boolean append(String phrase) {
+        String value = cleanPhrase(phrase);
+        if (value.isEmpty()) return true;
+        if (!valid()) return false;
+        if (composingStart >= 0) {
+            Snapshot before = expected;
+            if (!editor.ownsComposition(composingStart, before.cursor)) return false;
+            String inserted = insertion(anchor, value);
+            if (inserted == null) return false;
+            if (!editor.compose(inserted)) { expected = null; return false; }
+            Snapshot after = editor.snapshot();
+            if (after == null || after.cursor != composingStart + inserted.length()
+                    || !after.before.equals(context(anchor.before, inserted))
+                    || !after.after.equals(anchor.after)
+                    || !editor.ownsComposition(composingStart, after.cursor)) {
+                expected = null; return false;
+            }
+            if (!editor.finishComposing()) { expected = null; return false; }
+            expected = after;
+            composingStart = -1;
+            anchor = null;
+            composing = "";
+            return valid();
+        }
+        // Existing fallback for providers that send only final results.
+        if (!editor.finishComposing() || !valid()) return false;
+        Snapshot before = expected;
+        String inserted = insertion(before, value);
+        if (inserted == null) return false;
+        if (!editor.append(inserted)) { expected = null; return false; }
+        return checkAfter(before, inserted);
+    }
+
+    /** When authorization is lost, never touch an unverified composing range. */
+    void abandon() {
+        composingStart = -1;
+        anchor = null;
+        composing = "";
+        expected = null;
+    }
+
     private static boolean space(int c) { return Character.isWhitespace(c) || Character.isSpaceChar(c); }
     static String cleanPhrase(String text) {
         if (text == null) return "";
-        int start = 0;
-        int end = text.length();
+        int start = 0, end = text.length();
         while (start < end && space(text.codePointAt(start))) start += Character.charCount(text.codePointAt(start));
         while (end > start && space(text.codePointBefore(end))) end -= Character.charCount(text.codePointBefore(end));
         return text.substring(start, end);

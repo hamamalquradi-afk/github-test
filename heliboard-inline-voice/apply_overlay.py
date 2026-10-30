@@ -273,8 +273,12 @@ print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
 print("Imported custom layout files and Android speech-recognition service remain unchanged.")
 
-# Gallery changes remain an exact, independently reviewable extension of this overlay.
+# Keep additional candidate display strictly inside the suggestion strip.
+# This is a version-pinned exact-match patch and does not affect keyboard keys.
 import subprocess
+subprocess.run([sys.executable, str(overlay / "keynova_suggestions.py"), str(root)], check=True)
+
+# Gallery changes remain an exact, independently reviewable extension of this overlay.
 subprocess.run([sys.executable, str(overlay / "themes/apply_themes.py"), str(root)], check=True)
 
 # Phase 01 identity is applied last so both existing build variants retain branding.
