@@ -165,7 +165,39 @@ public class VoiceInputControllerTest {
     @Test public void changedEditorDoesNotReceiveOldTranscript() {
         partial("hello"); InputConnection other = mock(InputConnection.class);
         doReturn(other).when(ime).getCurrentInputConnection(); finish("hello world");
-        assertEquals("Existing: ", text.toString()); verifyNoInteractions(other);
+        assertEquals("Existing: ", text.toString());
+        assertUnsafeEditorWritesAbsent(other);
+        assertFalse("old dictation must stop when a new connection cannot be validated", voice.isEnabled());
+    }
+    /** Safe reads may verify editor identity. Any write or cursor/composition
+     * mutation to an unapproved connection is a safety failure. */
+    private static void assertUnsafeEditorWritesAbsent(InputConnection connection) {
+        verify(connection, never()).commitText(any(CharSequence.class), anyInt());
+        verify(connection, never()).deleteSurroundingText(anyInt(), anyInt());
+        verify(connection, never()).deleteSurroundingTextInCodePoints(anyInt(), anyInt());
+        verify(connection, never()).setSelection(anyInt(), anyInt());
+        verify(connection, never()).setComposingText(any(CharSequence.class), anyInt());
+        verify(connection, never()).setComposingRegion(anyInt(), anyInt());
+        verify(connection, never()).finishComposingText();
+        verify(connection, never()).sendKeyEvent(any());
+        verify(connection, never()).commitCompletion(any());
+        verify(connection, never()).commitCorrection(any());
+    }
+    /** Second InputConnection can serve identical text; this alone must not
+     * authorize voice insertion into another EditorInfo/editor. */
+    private InputConnection matchingTextConnection() {
+        InputConnection connection = mock(InputConnection.class);
+        when(connection.getExtractedText(any(), eq(0))).thenAnswer(call -> {
+            ExtractedText extracted = new ExtractedText();
+            extracted.text = text.toString(); extracted.startOffset = 0;
+            extracted.selectionStart = model.start; extracted.selectionEnd = model.end;
+            return extracted;
+        });
+        when(connection.getTextBeforeCursor(anyInt(), eq(0))).thenAnswer(call ->
+                text.substring(Math.max(0, model.start - (Integer) call.getArgument(0)), model.start));
+        when(connection.getTextAfterCursor(anyInt(), eq(0))).thenAnswer(call ->
+                text.substring(model.end, Math.min(text.length(), model.end + (Integer) call.getArgument(0))));
+        return connection;
     }
     @Test public void finalOnlyEngineAndNextUtteranceKeepBothPhrases() {
         finish("hello"); restart(); partial("world"); finish("world"); assertEquals("Existing: hello world", text.toString());
@@ -233,11 +265,34 @@ public class VoiceInputControllerTest {
         otherInfo.inputType = InputType.TYPE_CLASS_TEXT;
         otherInfo.packageName = "test.editor"; otherInfo.fieldId = 7;
         doReturn(otherInfo).when(ime).getCurrentInputEditorInfo();
-        InputConnection other = mock(InputConnection.class);
+        InputConnection other = matchingTextConnection();
         doReturn(other).when(ime).getCurrentInputConnection();
         partial("should not transfer"); finish("should not transfer");
         assertEquals("Existing: ", text.toString());
-        assertFalse(voice.isEnabled()); verifyNoInteractions(other);
+        assertFalse(voice.isEnabled());
+        assertUnsafeEditorWritesAbsent(other);
+    }
+    @Test public void changedFieldIdWithIdenticalTextCannotReceiveOldTranscript() {
+        EditorInfo differentField = new EditorInfo();
+        differentField.inputType = InputType.TYPE_CLASS_TEXT;
+        differentField.packageName = "test.editor"; differentField.fieldId = 8;
+        doReturn(differentField).when(ime).getCurrentInputEditorInfo();
+        InputConnection other = matchingTextConnection();
+        doReturn(other).when(ime).getCurrentInputConnection();
+        partial("private words"); finish("private words");
+        assertEquals("Existing: ", text.toString());
+        assertFalse(voice.isEnabled());
+        assertUnsafeEditorWritesAbsent(other);
+    }
+    @Test public void reusedEditorInfoWithChangedFieldIdCannotReceiveOldTranscript() {
+        EditorInfo original = ime.getCurrentInputEditorInfo();
+        original.fieldId = 8;
+        InputConnection other = matchingTextConnection();
+        doReturn(other).when(ime).getCurrentInputConnection();
+        partial("private words"); finish("private words");
+        assertEquals("Existing: ", text.toString());
+        assertFalse(voice.isEnabled());
+        assertUnsafeEditorWritesAbsent(other);
     }
     @Test public void revokedAudioPermissionStopsBeforeFinalCommit() {
         partial("private");
