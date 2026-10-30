@@ -34,6 +34,29 @@ public class VoiceDictationSessionTest {
         assertEquals("", host.text.toString());
     }
 
+    @Test public void silenceSixtySecondsRecyclesServiceButKeepsIntent() {
+        listener().ready(); clock.advance(60000);
+        assertTrue(voice.isEnabled());
+        assertTrue(provider.listeners.size() > 1);
+        assertEquals("", host.text.toString());
+        listener().partial("after one minute"); listener().result("after one minute");
+        assertEquals("after one minute ", host.text.toString());
+    }
+
+    @Test public void fiveSpeechPauseResumeCyclesPreserveEarlierFinals() {
+        StringBuilder expected = new StringBuilder();
+        long[] gaps = {3000, 10000, 30000, 60000, 3000};
+        for (int i = 0; i < gaps.length; i++) {
+            clock.advance(gaps[i]);
+            assertTrue(voice.isEnabled());
+            phrase("phrase" + i);
+            expected.append("phrase").append(i).append(' ');
+            assertEquals(expected.toString(), host.text.toString());
+        }
+        assertEquals(5, host.commits);
+        assertTrue(provider.maximumActive <= 1);
+    }
+
     @Test public void providerSilenceEndpointsDoNotDisableModeForThirtySeconds() {
         for (int i = 0; i < 30; i++) {
             listener().ready(); listener().error(VoiceDictationSession.Failure.SILENCE);
