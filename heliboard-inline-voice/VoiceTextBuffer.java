@@ -33,6 +33,7 @@ final class VoiceTextBuffer {
     private final Editor editor;
     private Snapshot expected;
     private int composingStart = -1;
+    private Snapshot anchor;
     private String composing = "";
 
     VoiceTextBuffer(Editor editor) {
@@ -92,20 +93,17 @@ final class VoiceTextBuffer {
             if (!editor.compose(inserted)) { expected = null; return false; }
             if (!checkAfter(before, inserted)) return false;
             composingStart = before.cursor;
+            anchor = before;
             composing = inserted;
         } else {
             if (!editor.ownsComposition(composingStart, expected.cursor)) return false;
-            Snapshot before = expected;
-            String inserted = insertion(new Snapshot(composingStart,
-                    before.before.substring(0, Math.max(0, before.before.length() - composing.length())),
-                    before.after), value);
+            String inserted = insertion(anchor, value);
             if (inserted == null) return false;
             if (!editor.compose(inserted)) { expected = null; return false; }
             Snapshot after = editor.snapshot();
-            String stableBefore = before.before.substring(0, before.before.length() - composing.length());
             if (after == null || after.cursor != composingStart + inserted.length()
-                    || !after.before.equals(context(stableBefore, inserted))
-                    || !after.after.equals(before.after)) { expected = null; return false; }
+                    || !after.before.equals(context(anchor.before, inserted))
+                    || !after.after.equals(anchor.after)) { expected = null; return false; }
             expected = after;
             composing = inserted;
         }
@@ -120,23 +118,21 @@ final class VoiceTextBuffer {
         if (!valid()) return false;
         if (composingStart >= 0) {
             Snapshot before = expected;
-            if (!editor.ownsComposition(composingStart, before.cursor)
-                    || before.before.length() < composing.length()
-                    || !before.before.endsWith(composing)) return false;
-            String stableBefore = before.before.substring(0, before.before.length() - composing.length());
-            String inserted = insertion(new Snapshot(composingStart, stableBefore, before.after), value);
+            if (!editor.ownsComposition(composingStart, before.cursor)) return false;
+            String inserted = insertion(anchor, value);
             if (inserted == null) return false;
             if (!editor.compose(inserted)) { expected = null; return false; }
             Snapshot after = editor.snapshot();
             if (after == null || after.cursor != composingStart + inserted.length()
-                    || !after.before.equals(context(stableBefore, inserted))
-                    || !after.after.equals(before.after)
+                    || !after.before.equals(context(anchor.before, inserted))
+                    || !after.after.equals(anchor.after)
                     || !editor.ownsComposition(composingStart, after.cursor)) {
                 expected = null; return false;
             }
             if (!editor.finishComposing()) { expected = null; return false; }
             expected = after;
             composingStart = -1;
+            anchor = null;
             composing = "";
             return valid();
         }
@@ -152,6 +148,7 @@ final class VoiceTextBuffer {
     /** When authorization is lost, never touch an unverified composing range. */
     void abandon() {
         composingStart = -1;
+        anchor = null;
         composing = "";
         expected = null;
     }
