@@ -45,6 +45,7 @@ final class VoiceInputController {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final VoiceDictationSession session;
     @Nullable private InputConnection targetConnection;
+    @Nullable private EditorInfo targetEditor;
     @Nullable private VoiceTextBuffer textBuffer;
     @Nullable private Locale selectedLocale;
     @Nullable private VoiceListeningIndicator indicator;
@@ -85,6 +86,7 @@ final class VoiceInputController {
                     recreating = false;
                     handler.removeCallbacks(recreationTimeout);
                     targetConnection = null;
+                    targetEditor = null;
                     textBuffer = null;
                     selectedLocale = null;
                     message("توقف الإملاء لحماية النص أو لخطأ في خدمة الصوت؛ اضغط للمحاولة");
@@ -114,6 +116,7 @@ final class VoiceInputController {
         }
         if (!SpeechRecognizer.isRecognitionAvailable(ime)) { message("لا تتوفر خدمة تعرف صوتي"); return; }
         targetConnection = connection;
+        targetEditor = editor;
         targetPackage = editor.packageName;
         targetField = editor.fieldId;
         targetType = editor.inputType;
@@ -131,6 +134,7 @@ final class VoiceInputController {
         if (!textBuffer.valid()) {
             message("لا يدعم الحقل التحقق من موضع النص بأمان");
             targetConnection = null;
+            targetEditor = null;
             textBuffer = null;
             return;
         }
@@ -215,8 +219,22 @@ final class VoiceInputController {
     }
 
     private boolean isTargetActive() {
-        return targetConnection != null && targetConnection == ime.getCurrentInputConnection()
-                && sameField(ime.getCurrentInputEditorInfo());
+        if (targetConnection == null) return false;
+        EditorInfo info = ime.getCurrentInputEditorInfo();
+        if (!sameField(info) || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && ime.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED)) return false;
+        InputConnection current = ime.getCurrentInputConnection();
+        if (current == targetConnection) return true;
+        // A wrapper may change without changing the active editor. Never infer
+        // this from matching text alone: require the original EditorInfo object,
+        // a concrete field ID and the exact absolute caret/context checkpoint.
+        // A different editor, ambiguous ID or changed selection fails closed.
+        if (current == null || info != targetEditor || targetField <= 0
+                || textBuffer == null || !textBuffer.matchesSnapshot(readSnapshotFrom(current))) return false;
+        targetConnection = current;
+        Log.i(TAG, "rebound verified InputConnection for existing editor");
+        return true;
     }
 
     /** No cursor-relative deletion, selected-text replacement or composing span.
@@ -224,13 +242,17 @@ final class VoiceInputController {
      * context, voice fails closed rather than guessing where its words belong. */
     @Nullable private VoiceTextBuffer.Snapshot readSnapshot() {
         if (!isTargetActive()) return null;
+        return readSnapshotFrom(targetConnection);
+    }
+
+    @Nullable private VoiceTextBuffer.Snapshot readSnapshotFrom(InputConnection connection) {
         ExtractedTextRequest request = new ExtractedTextRequest();
         request.hintMaxChars = 2 * VoiceTextBuffer.CONTEXT;
-        ExtractedText extracted = targetConnection.getExtractedText(request, 0);
+        ExtractedText extracted = connection.getExtractedText(request, 0);
         if (extracted == null || extracted.selectionStart < 0
                 || extracted.selectionStart != extracted.selectionEnd || extracted.startOffset < 0) return null;
-        CharSequence before = targetConnection.getTextBeforeCursor(VoiceTextBuffer.CONTEXT, 0);
-        CharSequence after = targetConnection.getTextAfterCursor(VoiceTextBuffer.CONTEXT, 0);
+        CharSequence before = connection.getTextBeforeCursor(VoiceTextBuffer.CONTEXT, 0);
+        CharSequence after = connection.getTextAfterCursor(VoiceTextBuffer.CONTEXT, 0);
         if (before == null || after == null) return null;
         return new VoiceTextBuffer.Snapshot(extracted.startOffset + extracted.selectionStart,
                 before.toString(), after.toString());
@@ -249,8 +271,11 @@ final class VoiceInputController {
     /** Return true to bypass recorrection while voice owns the editor. */
     boolean onUpdateSelection() {
         if (!session.isEnabled()) return false;
-        if (!writing && (textBuffer == null || !isTargetActive() || !textBuffer.valid())) session.abort();
-        syncInputLogic();
+        // commitText can synchronously dispatch a selection callback before
+        // the new anchor has been checked. Finishing upstream input here can
+        // interfere with the in-flight commit; synchronize once after append.
+        if (writing) return true;
+        if (textBuffer == null || !isTargetActive() || !textBuffer.valid()) session.abort();
         return true;
     }
 
@@ -266,7 +291,8 @@ final class VoiceInputController {
         if (!session.isEnabled()) return;
         if (!recreating || !restarting || !sameField(ime.getCurrentInputEditorInfo())) { stop(); return; }
         targetConnection = ime.getCurrentInputConnection();
-        if (textBuffer == null || !textBuffer.valid()) { session.abort(); return; }
+        targetEditor = ime.getCurrentInputEditorInfo();
+        if (targetField <= 0 || textBuffer == null || !textBuffer.valid()) { session.abort(); return; }
         // Resume only when the input VIEW is ready, not in a hidden editor.
     }
 
@@ -290,6 +316,7 @@ final class VoiceInputController {
         handler.removeCallbacks(recreationTimeout);
         session.stop();
         targetConnection = null;
+        targetEditor = null;
         textBuffer = null;
         selectedLocale = null;
     }
