@@ -84,7 +84,9 @@ assert "Math.min(30000" in manager and "60000" in manager
 assert "hypothesis = value;" in manager and "host.append(phrase)" in manager
 buffer = (overlay / "VoiceTextBuffer.java").read_text()
 assert ".deleteSurroundingText(" not in buffer and ".setComposingText(" not in buffer
-assert "expected.same(editor.snapshot())" in buffer
+assert "matchesSnapshot(editor.snapshot())" in buffer and "expected.same(snapshot)" in buffer
+assert "String insertion = prefix + value;" in buffer and "String suffix =" not in buffer
+assert "textBuffer.matchesSnapshot(readSnapshotFrom(current))" in voice
 assert "editor.finishComposing()" in buffer and "after.cursor != before.cursor + insertion.length()" in buffer
 assert "indicator.setRms(level)" in voice and "indicator.setTranscript(partial)" in voice
 assert "new VoiceListeningIndicator(ime, () -> toggle(null))" in voice
