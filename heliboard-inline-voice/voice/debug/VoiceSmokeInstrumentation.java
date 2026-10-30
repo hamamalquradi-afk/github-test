@@ -65,16 +65,33 @@ public final class VoiceSmokeInstrumentation extends Instrumentation {
         current[0].partial("مرحبا كيف");
         check(editor.getText().toString().equals("Existing: "), "partial entered immutable editor");
         current[0].result("مرحبا كيف حالك"); clock.advance(350);
-        check(editor.getText().toString().equals("Existing: مرحبا كيف حالك "), "first phrase incorrect");
+        check(editor.getText().toString().equals("Existing: مرحبا كيف حالك"), "first phrase incorrect");
         // A real composing span over previous speech used to make commitText
         // overwrite it. Append must finish that span before any insertion.
         connection.setComposingRegion(10, editor.length());
         current[0].partial("اليوم سوف نجرب"); current[0].endpoint();
         clock.advance(2000); clock.advance(1000);
-        check(editor.getText().toString().equals("Existing: مرحبا كيف حالك اليوم سوف نجرب "), "previous Arabic phrase replaced");
+        check(editor.getText().toString().equals("Existing: مرحبا كيف حالك اليوم سوف نجرب"), "previous Arabic phrase replaced");
         current[0].partial("I can right"); current[0].result("I can write"); clock.advance(350);
-        String expected = "Existing: مرحبا كيف حالك اليوم سوف نجرب I can write ";
+        String expected = "Existing: مرحبا كيف حالك اليوم سوف نجرب I can write";
         check(editor.getText().toString().equals(expected), "revised final duplicated or lost text");
+        // The punctuation is deliberately supplied in its own provider session:
+        // an eager trailing separator would produce an invalid "word ،".
+        current[0].result("،"); clock.advance(350);
+        expected += "،";
+        check(editor.getText().toString().equals(expected), "punctuation was separated");
+        current[0].result("next"); clock.advance(350);
+        expected += " next";
+        check(editor.getText().toString().equals(expected), "missing phrase separator");
+        for (int i = 0; i < 5; i++) {
+            current[0].error(VoiceDictationSession.Failure.SILENCE);
+            clock.advance(750);
+            current[0].partial("word" + i);
+            current[0].result("word" + i);
+            clock.advance(350);
+            expected += " word" + i;
+            check(editor.getText().toString().equals(expected), "old text lost in cycle " + i);
+        }
         current[0].partial("must not overwrite"); editor.setSelection(3);
         current[0].result("unsafe");
         check(editor.getText().toString().equals(expected), "moved caret modified committed text");
