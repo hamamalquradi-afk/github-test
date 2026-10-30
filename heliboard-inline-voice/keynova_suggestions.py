@@ -42,7 +42,7 @@ extra = """    /** Only the suggestion strip gains scrolling; keyboard geometry 
             isHorizontalScrollBarEnabled = false
             isFillViewport = false
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            addView(row, HorizontalScrollView.LayoutParams(
+            addView(row, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
         suggestionsStrip.addView(scroll, LinearLayout.LayoutParams(
