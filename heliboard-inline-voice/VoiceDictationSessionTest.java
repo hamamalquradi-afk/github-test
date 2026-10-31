@@ -86,6 +86,86 @@ public class VoiceDictationSessionTest {
         }
     }
 
+    @Test public void tenSpeechSilenceResumeCyclesNeverDuplicateOrLosePreviousWords() {
+        StringBuilder expected = new StringBuilder();
+        long[] silence = {3000, 10000, 30000, 60000, 3000, 5000, 10000, 30000, 60000, 3000};
+        for (int i = 0; i < silence.length; i++) {
+            advanceProviderSilence(silence[i]);
+            assertTrue("dictation user intent lost in cycle " + i, voice.isEnabled());
+            assertEquals("no active recognizer after silence " + i, 1, provider.active);
+            VoiceDictationSession.Listener current = listener();
+            current.ready();
+            current.partial("word" + i);
+            current.partial("word" + i + " complete");
+            assertEquals("previous committed text changed by partial " + i,
+                    expected.toString(), host.text.toString());
+            current.endpoint();
+            current.result("word" + i + " complete");
+            current.result("word" + i + " complete"); // late duplicate terminal callback
+            clock.advance(350);
+            expected.append("word").append(i).append(" complete ");
+            assertEquals("missing/duplicated text after cycle " + i,
+                    expected.toString(), host.text.toString());
+            assertEquals(i + 1, host.commits);
+            assertTrue(provider.maximumActive <= 1);
+        }
+        assertEquals(10, host.commits);
+        assertTrue(provider.listeners.size() >= 10);
+        voice.stop();
+        int sessionsAtStop = provider.listeners.size();
+        clock.advance(120000);
+        assertFalse(voice.isEnabled());
+        assertEquals(0, provider.active);
+        assertEquals("manual stop resumed audio capture", sessionsAtStop, provider.listeners.size());
+        assertEquals(expected.toString(), host.text.toString());
+    }
+
+    @Test public void intentionalRepeatedWordsAcrossDifferentSessionsAreNeverDeduplicated() {
+        phrase("نعم");
+        phrase("نعم");
+        phrase("hello hello");
+        assertEquals("نعم نعم hello hello ", host.text.toString());
+        assertEquals(3, host.commits);
+        assertEquals(1, provider.maximumActive);
+    }
+
+    @Test public void simulatedNetworkDisconnectAndRecoveryRetainSpeechAndRejectStaleEvents() {
+        VoiceDictationSession.Listener interrupted = listener();
+        interrupted.ready();
+        interrupted.partial("قبل انقطاع الشبكة");
+        interrupted.error(VoiceDictationSession.Failure.RECOVERABLE);
+        assertEquals("قبل انقطاع الشبكة ", host.text.toString());
+        assertEquals(1, host.commits);
+        assertEquals(0, provider.active);
+        assertEquals(VoiceDictationSession.State.RECONNECTING, voice.state());
+        clock.advance(999);
+        assertEquals(1, provider.listeners.size());
+        clock.advance(1);
+        assertTrue(voice.isEnabled());
+        assertEquals(1, provider.active);
+        interrupted.partial("رسالة متأخرة");
+        interrupted.result("رسالة متأخرة");
+        assertEquals("قبل انقطاع الشبكة ", host.text.toString());
+        VoiceDictationSession.Listener recovered = listener();
+        recovered.ready();
+        recovered.partial("بعد عودة الشبكة");
+        recovered.result("بعد عودة الشبكة");
+        assertEquals("قبل انقطاع الشبكة بعد عودة الشبكة ", host.text.toString());
+        assertEquals(2, host.commits);
+        assertEquals(1, provider.maximumActive);
+    }
+
+    @Test public void manualStopDuringNetworkRetryDoesNotReopenRecognition() {
+        listener().error(VoiceDictationSession.Failure.RECOVERABLE);
+        assertEquals(VoiceDictationSession.State.RECONNECTING, voice.state());
+        voice.stop();
+        clock.advance(120000);
+        assertFalse(voice.isEnabled());
+        assertEquals(0, provider.active);
+        assertEquals(1, provider.listeners.size());
+        assertEquals("", host.text.toString());
+    }
+
     @Test public void providerSilenceEndpointsDoNotDisableModeForThirtySeconds() {
         for (int i = 0; i < 30; i++) {
             listener().ready(); listener().error(VoiceDictationSession.Failure.SILENCE);
