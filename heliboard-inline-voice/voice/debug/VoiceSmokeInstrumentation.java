@@ -92,7 +92,7 @@ public final class VoiceSmokeInstrumentation extends Instrumentation {
         current[0].result("next"); clock.advance(350);
         expected += " next";
         check(editor.getText().toString().equals(expected), "missing phrase separator");
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 10; i++) {
             current[0].error(VoiceDictationSession.Failure.SILENCE);
             clock.advance(750);
             current[0].partial("word" + i);
@@ -100,6 +100,15 @@ public final class VoiceSmokeInstrumentation extends Instrumentation {
             clock.advance(350);
             expected += " word" + i;
             check(editor.getText().toString().equals(expected), "old text lost in cycle " + i);
+        }
+        // Identical words in independent user utterances must remain distinct.
+        for (int repeat = 0; repeat < 2; repeat++) {
+            current[0].partial("نعم");
+            current[0].result("نعم");
+            clock.advance(350);
+            expected += " نعم";
+            check(editor.getText().toString().equals(expected),
+                    "intentional duplicate word was removed or inserted twice");
         }
         current[0].partial("must not overwrite");
         check(editor.getText().toString().equals(expected + " must not overwrite"),
