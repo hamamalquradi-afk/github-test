@@ -299,3 +299,171 @@ for variant in ("debug", "themes"):
     debug_manifest.write_text(value)
 with (root / "app/proguard-rules.pro").open("a") as rules:
     rules.write("\n-keep class helium314.keyboard.latin.VoiceSmokeInstrumentation { *; }\n")
+
+# K02: preflight all settings files before replacing either preference store.
+backup = root / "app/src/main/java/helium314/keyboard/settings/preferences/BackupRestorePreference.kt"
+b = backup.read_text(encoding="utf-8")
+b = replace_once(b, r'''private fun restoreLauncher(onError: (String) -> Unit): ManagedActivityResultLauncher<Intent, ActivityResult> {
+    val ctx = LocalContext.current
+    return filePicker { uri ->
+        val wait = CountDownLatch(1)''', r'''private fun restoreLauncher(onError: (String) -> Unit): ManagedActivityResultLauncher<Intent, ActivityResult> {
+    val ctx = LocalContext.current
+    return filePicker { uri ->
+        var restoreSucceeded = false
+        val wait = CountDownLatch(1)''', 'restore result scope')
+b = replace_once(b, r'''            val oldPrefs = ctx.prefs().all.toMap()''', r'''            var preferencesChanged = false
+            val settingsFiles = linkedMapOf<String, List<String>>()
+            val oldPrefs = ctx.prefs().all.toMap()''', 'stage settings files')
+b = replace_once(b, r'''                            } else if (entry.name == PREFS_FILE_NAME) {
+                                val prefLines = String(zip.readBytes()).split("\n")
+                                val prefs = ctx.prefs()
+                                prefs.edit { clear() }
+                                anyMatch = true
+                                readJsonLinesToSettings(prefLines, prefs)
+                            } else if (entry.name == PROTECTED_PREFS_FILE_NAME) {
+                                val prefLines = String(zip.readBytes()).split("\n")
+                                val protectedPrefs = ctx.protectedPrefs()
+                                protectedPrefs.edit { clear() }
+                                readJsonLinesToSettings(prefLines, protectedPrefs)
+                                anyMatch = true
+                            }
+''', r'''                            } else if (entry.name == PREFS_FILE_NAME || entry.name == PROTECTED_PREFS_FILE_NAME) {
+                                require(!settingsFiles.containsKey(entry.name)) { "Duplicate settings backup file" }
+                                settingsFiles[entry.name] = String(zip.readBytes(), Charsets.UTF_8).split("\n")
+                                anyMatch = true
+                            }
+''', 'defer both preference files')
+b = replace_once(b, r'''                Database.copyFromDb(restoredDb, ctx)''', r'''                restoreSettingsFiles(settingsFiles, ctx.prefs(), ctx.protectedPrefs()) {
+                    preferencesChanged = true
+                }
+                Database.copyFromDb(restoredDb, ctx)''', 'validate before applying')
+b = replace_once(b, r'''                Toast.makeText(ctx, ctx.getString(R.string.backup_restored), Toast.LENGTH_LONG).show()''', r'''                Toast.makeText(ctx, ctx.getString(R.string.backup_restored), Toast.LENGTH_LONG).show()
+                restoreSucceeded = true''', 'restore success')
+b = replace_once(b, r'''                ctx.prefs().edit {''', r'''                if (preferencesChanged) {
+                ctx.prefs().edit {''', 'guard preference rollback')
+b = replace_once(b, r'''                onError("r" + t.message)''', r'''                }
+                onError("r" + t.message)''', 'end preference rollback guard')
+b = replace_once(b, r'''        checkVersionUpgrade(ctx)''', r'''        if (!restoreSucceeded) {
+            Settings.getInstance().startListener()
+            return@filePicker
+        }
+        checkVersionUpgrade(ctx)''', 'skip postprocessing on rejection')
+b = replace_once(b, r'''private fun readJsonLinesToSettings(list: List<String>, prefs: SharedPreferences): Boolean {
+    val i = list.iterator()
+    val e = prefs.edit()
+    try {
+        while (i.hasNext()) {
+            when (i.next()) {
+                "boolean settings" -> Json.decodeFromString<Map<String, Boolean>>(i.next()).forEach { e.putBoolean(it.key, it.value) }
+                "int settings" -> Json.decodeFromString<Map<String, Int>>(i.next()).forEach { e.putInt(it.key, it.value) }
+                "long settings" -> Json.decodeFromString<Map<String, Long>>(i.next()).forEach { e.putLong(it.key, it.value) }
+                "float settings" -> Json.decodeFromString<Map<String, Float>>(i.next()).forEach { e.putFloat(it.key, it.value) }
+                "string settings" -> Json.decodeFromString<Map<String, String>>(i.next()).forEach { e.putString(it.key, it.value) }
+                "string set settings" -> Json.decodeFromString<Map<String, Set<String>>>(i.next()).forEach { e.putStringSet(it.key, it.value) }
+            }
+        }
+        e.apply()
+        return true
+    } catch (e: Exception) {
+        return false
+    }
+}
+
+''', r'''// Validate every settings file before acquiring an editor or clearing either store.
+internal fun restoreSettingsFiles(
+    files: Map<String, List<String>>,
+    prefs: SharedPreferences,
+    protectedPrefs: SharedPreferences,
+    beforeApply: () -> Unit = {},
+) {
+    val parsed = files.mapValues { (name, lines) ->
+        require(name == PREFS_FILE_NAME || name == PROTECTED_PREFS_FILE_NAME) {
+            "Invalid settings backup: unknown file"
+        }
+        try {
+            parseSettingsLines(lines)
+        } catch (_: Exception) {
+            // Never include parser messages, keys or values in diagnostics.
+            throw IllegalArgumentException("Invalid settings backup: $name")
+        }
+    }
+    if (parsed.isEmpty()) return // File-only backups are still supported.
+    beforeApply()
+    parsed.forEach { (name, values) ->
+        val target = if (name == PREFS_FILE_NAME) prefs else protectedPrefs
+        target.edit {
+            clear()
+            values.forEach { (key, value) ->
+                when (value) {
+                    is Boolean -> putBoolean(key, value)
+                    is Int -> putInt(key, value)
+                    is Long -> putLong(key, value)
+                    is Float -> putFloat(key, value)
+                    is String -> putString(key, value)
+                    is Set<*> -> putStringSet(key, value.filterIsInstance<String>().toSet())
+                }
+            }
+        }
+    }
+}
+
+private fun parseSettingsLines(lines: List<String>): Map<String, Any> {
+    val sections = setOf("boolean settings", "int settings", "long settings",
+        "float settings", "string settings", "string set settings")
+    val seen = mutableSetOf<String>()
+    val values = linkedMapOf<String, Any>()
+    // The writer emits exactly six header/object pairs, without a trailing newline.
+    val input = lines.dropLastWhile { it.isBlank() }
+    require(input.size == sections.size * 2)
+    for (pair in input.chunked(2)) {
+        val section = pair[0]
+        require(section in sections && seen.add(section))
+        val obj = Json.parseToJsonElement(pair[1]) as? kotlinx.serialization.json.JsonObject
+            ?: error("Expected settings object")
+        obj.forEach { (key, element) ->
+            require(!values.containsKey(key))
+            val primitive = element as? kotlinx.serialization.json.JsonPrimitive
+            val value: Any = when (section) {
+                "string set settings" -> {
+                    val array = element as? kotlinx.serialization.json.JsonArray
+                        ?: error("Expected string set")
+                    array.map {
+                        val item = it as? kotlinx.serialization.json.JsonPrimitive
+                            ?: error("Expected string")
+                        require(item.isString)
+                        item.content
+                    }.toSet()
+                }
+                "string settings" -> {
+                    require(primitive != null && primitive.isString)
+                    primitive.content
+                }
+                else -> {
+                    require(primitive != null && !primitive.isString)
+                    val raw = primitive.content
+                    when (section) {
+                        "boolean settings" -> raw.toBooleanStrict()
+                        "int settings" -> raw.toInt()
+                        "long settings" -> raw.toLong()
+                        "float settings" -> raw.toFloat().also { require(it.isFinite()) }
+                        else -> error("Unknown settings section")
+                    }
+                }
+            }
+            values[key] = value
+        }
+    }
+    require(seen == sections)
+    return values
+}
+
+''', 'strict side-effect-free parser')
+
+rollback_start = b.index("                if (preferencesChanged) {\n") + len("                if (preferencesChanged) {\n")
+rollback_end = b.index('                }\n                onError("r" + t.message)', rollback_start)
+rollback = "".join(
+    "    " + line if line.strip() else line
+    for line in b[rollback_start:rollback_end].splitlines(keepends=True)
+)
+b = b[:rollback_start] + rollback + b[rollback_end:]
+backup.write_text(b, encoding="utf-8")

@@ -185,3 +185,23 @@ for variant in ('debug', 'themes'):
         assert source.read_bytes() == (overlay / 'themes/debug' / name).read_bytes(), (variant, name)
 assert 'java.srcDir("src/debug/java")' not in gradle
 print('PASS: both minified variants package their own Kotlin instrumentation and manifest')
+
+# K02: production restore must stage both files and preflight them before edits.
+backup = (app / 'src/main/java/helium314/keyboard/settings/preferences/BackupRestorePreference.kt').read_text()
+restore = backup[backup.index('private fun restoreLauncher('):backup.index('@Suppress("UNCHECKED_CAST")')]
+entry_loop = restore[restore.index('while (entry != null)'):restore.index('if (!anyMatch)')]
+assert 'settingsFiles[entry.name] =' in entry_loop
+assert '.edit' not in entry_loop and 'readJsonLinesToSettings' not in backup
+assert restore.index('restoreSettingsFiles(settingsFiles,') > restore.index('if (!anyMatch)')
+assert 'if (preferencesChanged) {' in restore
+assert 'if (!restoreSucceeded) {' in restore and 'return@filePicker' in restore
+helper = backup[backup.index('internal fun restoreSettingsFiles('):backup.index('private fun restoreEntryToDir(')]
+assert helper.index('val parsed = files.mapValues') < helper.index('beforeApply()') < helper.index('target.edit {')
+for check in ('parseSettingsLines(lines)', 'require(input.size == sections.size * 2)',
+              'require(seen == sections)', 'primitive.isString', 'it.isFinite()',
+              'Invalid settings backup: $name'):
+    assert check in helper, check
+regression = app / 'src/test/java/helium314/keyboard/BackupRestoreValidationTest.kt'
+assert regression.read_bytes() == (overlay / 'themes/tests/BackupRestoreValidationTest.kt').read_bytes()
+assert 'restoreSettingsFiles(' in regression.read_text()
+print('PASS: K02 staged settings validation, guarded rollback and production regression test installed')
