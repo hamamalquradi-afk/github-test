@@ -205,3 +205,22 @@ regression = app / 'src/test/java/helium314/keyboard/BackupRestoreValidationTest
 assert regression.read_bytes() == (overlay / 'themes/tests/BackupRestoreValidationTest.kt').read_bytes()
 assert 'restoreSettingsFiles(' in regression.read_text()
 print('PASS: K02 staged settings validation, guarded rollback and production regression test installed')
+
+# K01: restoreLauncher must use the one validated disk snapshot before mutations.
+assert 'withValidatedRestoreArchive(input, ctx.cacheDir, filesDir, deviceProtectedFilesDir)' in restore
+assert restore.index('withValidatedRestoreArchive(') < restore.index('filesDir.renameTo(filesDir2)')
+assert 'ZipInputStream(snapshot.inputStream().buffered())' in restore
+assert restore.count('openInputStream(uri)') == 1
+assert 'if (filesChanged) {' in restore
+assert 'anyMatch = restoreEntryToDir(zip, deviceProtectedFilesDir, adjustedName) || anyMatch' in restore
+assert 'anyMatch = restoreEntryToDir(zip, filesDir, entry.name) || anyMatch' in restore
+assert 'if (entry.isDirectory)' in restore
+archive_helper = backup[backup.index('internal fun withValidatedRestoreArchive('):]
+assert archive_helper.index('require(usable)') < archive_helper.index('apply(snapshot)')
+for check in ('input.copyTo(it)', 'java.util.zip.ZipFile(snapshot)', 'parseSettingsLines(',
+              'isSafeRestorePath(base, name)', 'zip.closeEntry()', 'snapshot.delete()',
+              'Invalid or unusable backup archive'):
+    assert check in archive_helper, check
+archive_test = app / 'src/test/java/helium314/keyboard/BackupRestoreArchiveValidationTest.kt'
+assert archive_test.read_bytes() == (overlay / 'themes/tests/BackupRestoreArchiveValidationTest.kt').read_bytes()
+print('PASS: K01 disk snapshot preflight precedes original data mutation; archive regressions installed')

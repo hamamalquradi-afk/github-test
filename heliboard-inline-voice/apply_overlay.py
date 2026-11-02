@@ -467,3 +467,132 @@ rollback = "".join(
 )
 b = b[:rollback_start] + rollback + b[rollback_end:]
 backup.write_text(b, encoding="utf-8")
+
+# K01: disk snapshot preflight before moving/deleting original files.
+b = replace_once(b, r'''            filesDir.renameTo(filesDir2)
+            deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir2)
+            try {
+                var anyMatch = false
+                ctx.getActivity()?.contentResolver?.openInputStream(uri)?.use { inputStream ->
+                    ZipInputStream(inputStream).use { zip ->''', r'''            var filesChanged = false
+            try {
+                val resolver = ctx.getActivity()?.contentResolver
+                    ?: error("Backup source unavailable")
+                resolver.openInputStream(uri)?.use { input ->
+                withValidatedRestoreArchive(input, ctx.cacheDir, filesDir, deviceProtectedFilesDir) { snapshot ->
+                filesChanged = true
+                filesDir.renameTo(filesDir2)
+                deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir2)
+                var anyMatch = false
+                    ZipInputStream(snapshot.inputStream().buffered()).use { zip ->''', 'K01 preflight before original data moves')
+b = replace_once(b, r'''                            if (entry.name.startsWith("unprotected${File.separator}")) {''', r'''                            if (entry.isDirectory) {
+                                // Directories alone are not restorable data.
+                            } else if (entry.name.startsWith("unprotected${File.separator}")) {''', 'K01 ignore directory entries')
+b = replace_once(b, r'''                                    if (!restoreEntryToDir(zip, deviceProtectedFilesDir, adjustedName)) {
+                                        Log.w("AdvancedScreen", "skipping unsafe backup entry $adjustedName")
+                                    }
+                                }
+                                anyMatch = true''', r'''                                    anyMatch = restoreEntryToDir(zip, deviceProtectedFilesDir, adjustedName) || anyMatch
+                                }''', 'K01 only count restored protected files')
+b = replace_once(b, r'''                }
+                if (!anyMatch)''', r'''                if (!anyMatch)''', 'K01 keep validated snapshot scope')
+b = replace_once(b, r'''                restoreSucceeded = true
+            } catch''', r'''                restoreSucceeded = true
+                }
+                } ?: error("Backup source unavailable")
+            } catch''', 'K01 close snapshot before rollback')
+b = replace_once(b, r'''                filesDir.deleteRecursively()
+                filesDir2.renameTo(filesDir)
+                deviceProtectedFilesDir.deleteRecursively()
+                deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir)''', r'''                if (filesChanged) {
+                    filesDir.deleteRecursively()
+                    filesDir2.renameTo(filesDir)
+                    deviceProtectedFilesDir.deleteRecursively()
+                    deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir)
+                }''', 'K01 do not roll back untouched original data')
+b = replace_once(b, r'''    val file = File(baseDir, entryName)
+    val canonicalBase = baseDir.canonicalFile
+    val canonicalTarget = file.canonicalFile
+    if (canonicalTarget.path != canonicalBase.path
+        && !canonicalTarget.path.startsWith(canonicalBase.path + File.separator)
+    ) return false''', r'''    if (!isSafeRestorePath(baseDir, entryName)) return false
+    val file = File(baseDir, entryName)''', 'K01 share canonical path guard')
+b += r'''
+// Snapshot the URI once on disk and validate before allowing any user-data mutation.
+internal fun withValidatedRestoreArchive(
+    input: java.io.InputStream,
+    cacheDir: File,
+    filesDir: File,
+    protectedFilesDir: File,
+    apply: (File) -> Unit,
+) {
+    val snapshot = File.createTempFile("keynova-restore-", ".zip", cacheDir)
+    try {
+        try {
+            snapshot.outputStream().use { input.copyTo(it) }
+            // ZipInputStream alone accepts a truncated/missing central directory.
+            java.util.zip.ZipFile(snapshot).use { }
+            var usable = false
+            val settings = mutableSetOf<String>()
+            ZipInputStream(snapshot.inputStream().buffered()).use { zip ->
+                var entry = zip.nextEntry
+                val buffer = ByteArray(8192)
+                while (entry != null) {
+                    val current = entry
+                    val isProtected = current.name.startsWith("unprotected/")
+                    val name = if (isProtected) current.name.removePrefix("unprotected/") else current.name
+                    val base = if (isProtected) protectedFilesDir else filesDir
+                    require((current.isDirectory && isProtected && name.isEmpty()) ||
+                        isSafeRestorePath(base, name))
+                    if (!current.isDirectory) {
+                        if (!isProtected && (name == PREFS_FILE_NAME || name == PROTECTED_PREFS_FILE_NAME)) {
+                            require(settings.add(name))
+                            parseSettingsLines(String(zip.readBytes(), Charsets.UTF_8).split("\n"))
+                            usable = true
+                        } else {
+                            val allowed = (!isProtected && name == Database.NAME) ||
+                                backupFilePatterns.any { name.matches(it) }
+                            var bytes = 0L
+                            var count = zip.read(buffer)
+                            while (count != -1) {
+                                bytes += count
+                                count = zip.read(buffer)
+                            }
+                            if (allowed && bytes > 0) usable = true
+                        }
+                    }
+                    zip.closeEntry() // validates CRC, including ignored entries
+                    entry = zip.nextEntry
+                }
+            }
+            require(usable)
+        } catch (_: Exception) {
+            // Do not expose paths, settings, ZIP entry names or parser messages.
+            throw IllegalArgumentException("Invalid or unusable backup archive")
+        }
+        apply(snapshot)
+    } finally {
+        snapshot.delete() // Delete only the snapshot owned by this operation.
+    }
+}
+
+private fun isSafeRestorePath(baseDir: File, entryName: String): Boolean {
+    if (entryName.startsWith("/") || entryName.isEmpty()) return false
+    val base = baseDir.canonicalFile
+    val target = File(baseDir, entryName).canonicalFile
+    return target.path.startsWith(base.path + File.separator)
+}
+'''
+mutation_start = b.index("                filesChanged = true\n")
+mutation_end = b.index('                }\n                } ?: error("Backup source unavailable")', mutation_start)
+b = b[:mutation_start] + "".join("        " + line if line.strip() else line for line in b[mutation_start:mutation_end].splitlines(keepends=True)) + b[mutation_end:]
+b = replace_once(b, r'''                                        if (!restoreEntryToDir(zip, filesDir, entry.name)) {
+                                            Log.w("AdvancedScreen", "skipping unsafe backup entry ${entry.name}")
+                                        }
+                                        anyMatch = true''', r'''                                        anyMatch = restoreEntryToDir(zip, filesDir, entry.name) || anyMatch''', 'K01 only count restored normal files')
+b = replace_once(b, '                withValidatedRestoreArchive(input,', '                    withValidatedRestoreArchive(input,', 'K01 indent archive boundary')
+b = replace_once(b, '                }\n                } ?: error("Backup source unavailable")', '                    }\n                } ?: error("Backup source unavailable")', 'K01 indent archive close')
+zip_start = b.index('                            ZipInputStream(snapshot.inputStream().buffered())')
+zip_end = b.index('                        if (!anyMatch)', zip_start)
+b = b[:zip_start] + "".join(line[4:] if line.strip() else line for line in b[zip_start:zip_end].splitlines(keepends=True)) + b[zip_end:]
+backup.write_text(b, encoding="utf-8")

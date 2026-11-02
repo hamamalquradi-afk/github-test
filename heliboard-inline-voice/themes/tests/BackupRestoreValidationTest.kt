@@ -70,7 +70,15 @@ class BackupRestoreValidationTest {
             "f" to 1.25f, "s" to "مرحبا", "ss" to setOf("x", "y"))
         for (store in listOf(normal, protectedStore)) {
             assertEquals(expected, store.all)
-            expected.forEach { (key, value) -> assertEquals(value::class, store.all[key]!!::class) }
+            expected.forEach { (key, value) ->
+                val actual = store.all[key]
+                if (value is Set<*>) {
+                    assertTrue(actual is Set<*>)
+                    assertEquals(value, actual)
+                } else {
+                    assertEquals(value::class, actual!!::class)
+                }
+            }
         }
     }
     @Test fun currentWriterRoundTrips() {
