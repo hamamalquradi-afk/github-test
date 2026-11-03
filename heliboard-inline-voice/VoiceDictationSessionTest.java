@@ -34,6 +34,138 @@ public class VoiceDictationSessionTest {
         assertEquals("", host.text.toString());
     }
 
+    @Test public void silenceSixtySecondsRecyclesServiceButKeepsIntent() {
+        listener().ready(); clock.advance(60000);
+        assertTrue(voice.isEnabled());
+        assertTrue(provider.listeners.size() > 1);
+        assertEquals("", host.text.toString());
+        listener().partial("after one minute"); listener().result("after one minute");
+        assertEquals("after one minute ", host.text.toString());
+    }
+
+    @Test public void fiveSpeechPauseResumeCyclesPreserveEarlierFinals() {
+        StringBuilder expected = new StringBuilder();
+        long[] gaps = {3000, 10000, 30000, 60000, 3000};
+        for (int i = 0; i < gaps.length; i++) {
+            advanceProviderSilence(gaps[i]);
+            assertTrue("user dictation intent lost after silence " + gaps[i], voice.isEnabled());
+            assertEquals("recognizer not active before phrase " + i, 1, provider.active);
+            listener().ready();
+            assertEquals(VoiceDictationSession.State.LISTENING, voice.state());
+            phrase("phrase" + i);
+            expected.append("phrase").append(i).append(' ');
+            assertEquals("previous phrase lost or duplicated at cycle " + i,
+                    expected.toString(), host.text.toString());
+            assertEquals(i + 1, host.commits);
+        }
+        assertEquals(5, host.commits);
+        assertTrue(provider.maximumActive <= 1);
+        assertTrue("60-second silence never exercised recognizer renewal",
+                provider.listeners.size() > gaps.length);
+    }
+
+    /** A provider may endpoint after silence. A new recognizer cannot emit
+     * speech until its start() has actually run; never deliver callbacks to
+     * an old listener while the manager's restart/backoff timer is pending. */
+    private void advanceProviderSilence(long millis) {
+        long remaining = millis;
+        while (remaining > 0) {
+            assertEquals("speech delivered before recognizer start", 1, provider.active);
+            listener().ready();
+            long listening = Math.min(3000, remaining);
+            clock.advance(listening);
+            remaining -= listening;
+            if (remaining > 0) {
+                listener().error(VoiceDictationSession.Failure.SILENCE);
+                assertEquals(VoiceDictationSession.State.RECONNECTING, voice.state());
+                long restartDelay = Math.min(750, remaining);
+                clock.advance(restartDelay);
+                remaining -= restartDelay;
+            }
+            assertTrue(voice.isEnabled());
+        }
+    }
+
+    @Test public void tenSpeechSilenceResumeCyclesNeverDuplicateOrLosePreviousWords() {
+        StringBuilder expected = new StringBuilder();
+        long[] silence = {3000, 10000, 30000, 60000, 3000, 5000, 10000, 30000, 60000, 3000};
+        for (int i = 0; i < silence.length; i++) {
+            advanceProviderSilence(silence[i]);
+            assertTrue("dictation user intent lost in cycle " + i, voice.isEnabled());
+            assertEquals("no active recognizer after silence " + i, 1, provider.active);
+            VoiceDictationSession.Listener current = listener();
+            current.ready();
+            current.partial("word" + i);
+            current.partial("word" + i + " complete");
+            assertEquals("previous committed text changed by partial " + i,
+                    expected.toString(), host.text.toString());
+            current.endpoint();
+            current.result("word" + i + " complete");
+            current.result("word" + i + " complete"); // late duplicate terminal callback
+            clock.advance(350);
+            expected.append("word").append(i).append(" complete ");
+            assertEquals("missing/duplicated text after cycle " + i,
+                    expected.toString(), host.text.toString());
+            assertEquals(i + 1, host.commits);
+            assertTrue(provider.maximumActive <= 1);
+        }
+        assertEquals(10, host.commits);
+        assertTrue(provider.listeners.size() >= 10);
+        voice.stop();
+        int sessionsAtStop = provider.listeners.size();
+        clock.advance(120000);
+        assertFalse(voice.isEnabled());
+        assertEquals(0, provider.active);
+        assertEquals("manual stop resumed audio capture", sessionsAtStop, provider.listeners.size());
+        assertEquals(expected.toString(), host.text.toString());
+    }
+
+    @Test public void intentionalRepeatedWordsAcrossDifferentSessionsAreNeverDeduplicated() {
+        phrase("نعم");
+        phrase("نعم");
+        phrase("hello hello");
+        assertEquals("نعم نعم hello hello ", host.text.toString());
+        assertEquals(3, host.commits);
+        assertEquals(1, provider.maximumActive);
+    }
+
+    @Test public void simulatedNetworkDisconnectAndRecoveryRetainSpeechAndRejectStaleEvents() {
+        VoiceDictationSession.Listener interrupted = listener();
+        interrupted.ready();
+        interrupted.partial("قبل انقطاع الشبكة");
+        interrupted.error(VoiceDictationSession.Failure.RECOVERABLE);
+        assertEquals("قبل انقطاع الشبكة ", host.text.toString());
+        assertEquals(1, host.commits);
+        assertEquals(0, provider.active);
+        assertEquals(VoiceDictationSession.State.RECONNECTING, voice.state());
+        clock.advance(999);
+        assertEquals(1, provider.listeners.size());
+        clock.advance(1);
+        assertTrue(voice.isEnabled());
+        assertEquals(1, provider.active);
+        interrupted.partial("رسالة متأخرة");
+        interrupted.result("رسالة متأخرة");
+        assertEquals("قبل انقطاع الشبكة ", host.text.toString());
+        VoiceDictationSession.Listener recovered = listener();
+        recovered.ready();
+        recovered.partial("بعد عودة الشبكة");
+        recovered.result("بعد عودة الشبكة");
+        assertEquals("قبل انقطاع الشبكة بعد عودة الشبكة ", host.text.toString());
+        assertEquals(2, host.commits);
+        assertEquals(1, provider.maximumActive);
+    }
+
+    @Test public void manualStopDuringNetworkRetryDoesNotReopenRecognition() {
+        listener().error(VoiceDictationSession.Failure.RECOVERABLE);
+        assertEquals(VoiceDictationSession.State.RECONNECTING, voice.state());
+        voice.stop();
+        clock.advance(120000);
+        assertFalse(voice.isEnabled());
+        assertEquals(0, provider.active);
+        assertEquals(1, provider.listeners.size());
+        assertEquals("", host.text.toString());
+    }
+
     @Test public void providerSilenceEndpointsDoNotDisableModeForThirtySeconds() {
         for (int i = 0; i < 30; i++) {
             listener().ready(); listener().error(VoiceDictationSession.Failure.SILENCE);

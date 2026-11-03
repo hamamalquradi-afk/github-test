@@ -60,9 +60,9 @@ for old, new, label in (
     ("        SettingsValues settingsValues = mSettings.getCurrent();\n        Log.i(TAG, \"onConfigurationChanged\");",
      "        if (mInlineVoiceInput != null) mInlineVoiceInput.suspendForRecreation();\n"
      "        SettingsValues settingsValues = mSettings.getCurrent();\n        Log.i(TAG, \"onConfigurationChanged\");", "voice rotation boundary"),
-    ("        mHandler.onStartInput(editorInfo, restarting);",
-     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputStarted(restarting);\n"
-     "        mHandler.onStartInput(editorInfo, restarting);", "editor identity boundary"),
+    ("        super.onStartInput(editorInfo, restarting);",
+     "        super.onStartInput(editorInfo, restarting);\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputStarted(restarting);", "editor identity boundary"),
     ("        mStatsUtilsManager.onStartInputView();",
      "        mStatsUtilsManager.onStartInputView();\n"
      "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputViewStarted();", "resume recreated input view"),
@@ -70,7 +70,7 @@ for old, new, label in (
      "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputFinished();\n"
      "        super.onFinishInput();", "finish editor boundary"),
     ("        super.onWindowHidden();",
-     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputFinished();\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onWindowHidden();\n"
      "        super.onWindowHidden();", "release hidden microphone"),
     ("                composingSpanStart, composingSpanEnd);\n        if (DebugFlags.DEBUG_ENABLED)",
      "                composingSpanStart, composingSpanEnd);\n"
@@ -266,15 +266,19 @@ for row in ("keys", "keys2"):
         f"        assertEquals(10, {row}[2].count {{ !it.isSpacer }})",
         "German key count excluding alignment spacers " + row)
 parser_test.write_text(test_source, encoding="utf-8")
-for name in ("VoiceInputControllerTest.java", "VoiceDictationSessionTest.java", "VoiceTextBufferTest.java"):
+for name in ("VoiceInputControllerTest.java", "VoiceInputControllerIntegrationTest.java", "VoiceCompositionCompatibilityTest.java", "VoiceDictationSessionTest.java", "VoiceTextBufferTest.java"):
     shutil.copy2(overlay / name, root / "app/src/test/java/helium314/keyboard/latin" / name)
 
 print("Patched pinned HeliBoard source in", root)
 print("Updated built-in Arabic/English main layouts, coding row, compact functional row, and height defaults.")
 print("Imported custom layout files and Android speech-recognition service remain unchanged.")
 
-# Gallery changes remain an exact, independently reviewable extension of this overlay.
+# Keep additional candidate display strictly inside the suggestion strip.
+# This is a version-pinned exact-match patch and does not affect keyboard keys.
 import subprocess
+subprocess.run([sys.executable, str(overlay / "keynova_suggestions.py"), str(root)], check=True)
+
+# Gallery changes remain an exact, independently reviewable extension of this overlay.
 subprocess.run([sys.executable, str(overlay / "themes/apply_themes.py"), str(root)], check=True)
 
 # Phase 01 identity is applied last so both existing build variants retain branding.
@@ -295,3 +299,300 @@ for variant in ("debug", "themes"):
     debug_manifest.write_text(value)
 with (root / "app/proguard-rules.pro").open("a") as rules:
     rules.write("\n-keep class helium314.keyboard.latin.VoiceSmokeInstrumentation { *; }\n")
+
+# K02: preflight all settings files before replacing either preference store.
+backup = root / "app/src/main/java/helium314/keyboard/settings/preferences/BackupRestorePreference.kt"
+b = backup.read_text(encoding="utf-8")
+b = replace_once(b, r'''private fun restoreLauncher(onError: (String) -> Unit): ManagedActivityResultLauncher<Intent, ActivityResult> {
+    val ctx = LocalContext.current
+    return filePicker { uri ->
+        val wait = CountDownLatch(1)''', r'''private fun restoreLauncher(onError: (String) -> Unit): ManagedActivityResultLauncher<Intent, ActivityResult> {
+    val ctx = LocalContext.current
+    return filePicker { uri ->
+        var restoreSucceeded = false
+        val wait = CountDownLatch(1)''', 'restore result scope')
+b = replace_once(b, r'''            val oldPrefs = ctx.prefs().all.toMap()''', r'''            var preferencesChanged = false
+            val settingsFiles = linkedMapOf<String, List<String>>()
+            val oldPrefs = ctx.prefs().all.toMap()''', 'stage settings files')
+b = replace_once(b, r'''                            } else if (entry.name == PREFS_FILE_NAME) {
+                                val prefLines = String(zip.readBytes()).split("\n")
+                                val prefs = ctx.prefs()
+                                prefs.edit { clear() }
+                                anyMatch = true
+                                readJsonLinesToSettings(prefLines, prefs)
+                            } else if (entry.name == PROTECTED_PREFS_FILE_NAME) {
+                                val prefLines = String(zip.readBytes()).split("\n")
+                                val protectedPrefs = ctx.protectedPrefs()
+                                protectedPrefs.edit { clear() }
+                                readJsonLinesToSettings(prefLines, protectedPrefs)
+                                anyMatch = true
+                            }
+''', r'''                            } else if (entry.name == PREFS_FILE_NAME || entry.name == PROTECTED_PREFS_FILE_NAME) {
+                                require(!settingsFiles.containsKey(entry.name)) { "Duplicate settings backup file" }
+                                settingsFiles[entry.name] = String(zip.readBytes(), Charsets.UTF_8).split("\n")
+                                anyMatch = true
+                            }
+''', 'defer both preference files')
+b = replace_once(b, r'''                Database.copyFromDb(restoredDb, ctx)''', r'''                restoreSettingsFiles(settingsFiles, ctx.prefs(), ctx.protectedPrefs()) {
+                    preferencesChanged = true
+                }
+                Database.copyFromDb(restoredDb, ctx)''', 'validate before applying')
+b = replace_once(b, r'''                Toast.makeText(ctx, ctx.getString(R.string.backup_restored), Toast.LENGTH_LONG).show()''', r'''                Toast.makeText(ctx, ctx.getString(R.string.backup_restored), Toast.LENGTH_LONG).show()
+                restoreSucceeded = true''', 'restore success')
+b = replace_once(b, r'''                ctx.prefs().edit {''', r'''                if (preferencesChanged) {
+                ctx.prefs().edit {''', 'guard preference rollback')
+b = replace_once(b, r'''                onError("r" + t.message)''', r'''                }
+                onError("r" + t.message)''', 'end preference rollback guard')
+b = replace_once(b, r'''        checkVersionUpgrade(ctx)''', r'''        if (!restoreSucceeded) {
+            Settings.getInstance().startListener()
+            return@filePicker
+        }
+        checkVersionUpgrade(ctx)''', 'skip postprocessing on rejection')
+b = replace_once(b, r'''private fun readJsonLinesToSettings(list: List<String>, prefs: SharedPreferences): Boolean {
+    val i = list.iterator()
+    val e = prefs.edit()
+    try {
+        while (i.hasNext()) {
+            when (i.next()) {
+                "boolean settings" -> Json.decodeFromString<Map<String, Boolean>>(i.next()).forEach { e.putBoolean(it.key, it.value) }
+                "int settings" -> Json.decodeFromString<Map<String, Int>>(i.next()).forEach { e.putInt(it.key, it.value) }
+                "long settings" -> Json.decodeFromString<Map<String, Long>>(i.next()).forEach { e.putLong(it.key, it.value) }
+                "float settings" -> Json.decodeFromString<Map<String, Float>>(i.next()).forEach { e.putFloat(it.key, it.value) }
+                "string settings" -> Json.decodeFromString<Map<String, String>>(i.next()).forEach { e.putString(it.key, it.value) }
+                "string set settings" -> Json.decodeFromString<Map<String, Set<String>>>(i.next()).forEach { e.putStringSet(it.key, it.value) }
+            }
+        }
+        e.apply()
+        return true
+    } catch (e: Exception) {
+        return false
+    }
+}
+
+''', r'''// Validate every settings file before acquiring an editor or clearing either store.
+internal fun restoreSettingsFiles(
+    files: Map<String, List<String>>,
+    prefs: SharedPreferences,
+    protectedPrefs: SharedPreferences,
+    beforeApply: () -> Unit = {},
+) {
+    val parsed = files.mapValues { (name, lines) ->
+        require(name == PREFS_FILE_NAME || name == PROTECTED_PREFS_FILE_NAME) {
+            "Invalid settings backup: unknown file"
+        }
+        try {
+            parseSettingsLines(lines)
+        } catch (_: Exception) {
+            // Never include parser messages, keys or values in diagnostics.
+            throw IllegalArgumentException("Invalid settings backup: $name")
+        }
+    }
+    if (parsed.isEmpty()) return // File-only backups are still supported.
+    beforeApply()
+    parsed.forEach { (name, values) ->
+        val target = if (name == PREFS_FILE_NAME) prefs else protectedPrefs
+        target.edit {
+            clear()
+            values.forEach { (key, value) ->
+                when (value) {
+                    is Boolean -> putBoolean(key, value)
+                    is Int -> putInt(key, value)
+                    is Long -> putLong(key, value)
+                    is Float -> putFloat(key, value)
+                    is String -> putString(key, value)
+                    is Set<*> -> putStringSet(key, value.filterIsInstance<String>().toSet())
+                }
+            }
+        }
+    }
+}
+
+private fun parseSettingsLines(lines: List<String>): Map<String, Any> {
+    val sections = setOf("boolean settings", "int settings", "long settings",
+        "float settings", "string settings", "string set settings")
+    val seen = mutableSetOf<String>()
+    val values = linkedMapOf<String, Any>()
+    // The writer emits exactly six header/object pairs, without a trailing newline.
+    val input = lines.dropLastWhile { it.isBlank() }
+    require(input.size == sections.size * 2)
+    for (pair in input.chunked(2)) {
+        val section = pair[0]
+        require(section in sections && seen.add(section))
+        val obj = Json.parseToJsonElement(pair[1]) as? kotlinx.serialization.json.JsonObject
+            ?: error("Expected settings object")
+        obj.forEach { (key, element) ->
+            require(!values.containsKey(key))
+            val primitive = element as? kotlinx.serialization.json.JsonPrimitive
+            val value: Any = when (section) {
+                "string set settings" -> {
+                    val array = element as? kotlinx.serialization.json.JsonArray
+                        ?: error("Expected string set")
+                    array.map {
+                        val item = it as? kotlinx.serialization.json.JsonPrimitive
+                            ?: error("Expected string")
+                        require(item.isString)
+                        item.content
+                    }.toSet()
+                }
+                "string settings" -> {
+                    require(primitive != null && primitive.isString)
+                    primitive.content
+                }
+                else -> {
+                    require(primitive != null && !primitive.isString)
+                    val raw = primitive.content
+                    when (section) {
+                        "boolean settings" -> raw.toBooleanStrict()
+                        "int settings" -> raw.toInt()
+                        "long settings" -> raw.toLong()
+                        "float settings" -> raw.toFloat().also { require(it.isFinite()) }
+                        else -> error("Unknown settings section")
+                    }
+                }
+            }
+            values[key] = value
+        }
+    }
+    require(seen == sections)
+    return values
+}
+
+''', 'strict side-effect-free parser')
+
+rollback_start = b.index("                if (preferencesChanged) {\n") + len("                if (preferencesChanged) {\n")
+rollback_end = b.index('                }\n                onError("r" + t.message)', rollback_start)
+rollback = "".join(
+    "    " + line if line.strip() else line
+    for line in b[rollback_start:rollback_end].splitlines(keepends=True)
+)
+b = b[:rollback_start] + rollback + b[rollback_end:]
+backup.write_text(b, encoding="utf-8")
+
+# K01: disk snapshot preflight before moving/deleting original files.
+b = replace_once(b, r'''            filesDir.renameTo(filesDir2)
+            deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir2)
+            try {
+                var anyMatch = false
+                ctx.getActivity()?.contentResolver?.openInputStream(uri)?.use { inputStream ->
+                    ZipInputStream(inputStream).use { zip ->''', r'''            var filesChanged = false
+            try {
+                val resolver = ctx.getActivity()?.contentResolver
+                    ?: error("Backup source unavailable")
+                resolver.openInputStream(uri)?.use { input ->
+                withValidatedRestoreArchive(input, ctx.cacheDir, filesDir, deviceProtectedFilesDir) { snapshot ->
+                filesChanged = true
+                filesDir.renameTo(filesDir2)
+                deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir2)
+                var anyMatch = false
+                    ZipInputStream(snapshot.inputStream().buffered()).use { zip ->''', 'K01 preflight before original data moves')
+b = replace_once(b, r'''                            if (entry.name.startsWith("unprotected${File.separator}")) {''', r'''                            if (entry.isDirectory) {
+                                // Directories alone are not restorable data.
+                            } else if (entry.name.startsWith("unprotected${File.separator}")) {''', 'K01 ignore directory entries')
+b = replace_once(b, r'''                                    if (!restoreEntryToDir(zip, deviceProtectedFilesDir, adjustedName)) {
+                                        Log.w("AdvancedScreen", "skipping unsafe backup entry $adjustedName")
+                                    }
+                                }
+                                anyMatch = true''', r'''                                    anyMatch = restoreEntryToDir(zip, deviceProtectedFilesDir, adjustedName) || anyMatch
+                                }''', 'K01 only count restored protected files')
+b = replace_once(b, r'''                }
+                if (!anyMatch)''', r'''                if (!anyMatch)''', 'K01 keep validated snapshot scope')
+b = replace_once(b, r'''                restoreSucceeded = true
+            } catch''', r'''                restoreSucceeded = true
+                }
+                } ?: error("Backup source unavailable")
+            } catch''', 'K01 close snapshot before rollback')
+b = replace_once(b, r'''                filesDir.deleteRecursively()
+                filesDir2.renameTo(filesDir)
+                deviceProtectedFilesDir.deleteRecursively()
+                deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir)''', r'''                if (filesChanged) {
+                    filesDir.deleteRecursively()
+                    filesDir2.renameTo(filesDir)
+                    deviceProtectedFilesDir.deleteRecursively()
+                    deviceProtectedFilesDir2.renameTo(deviceProtectedFilesDir)
+                }''', 'K01 do not roll back untouched original data')
+b = replace_once(b, r'''    val file = File(baseDir, entryName)
+    val canonicalBase = baseDir.canonicalFile
+    val canonicalTarget = file.canonicalFile
+    if (canonicalTarget.path != canonicalBase.path
+        && !canonicalTarget.path.startsWith(canonicalBase.path + File.separator)
+    ) return false''', r'''    if (!isSafeRestorePath(baseDir, entryName)) return false
+    val file = File(baseDir, entryName)''', 'K01 share canonical path guard')
+b += r'''
+// Snapshot the URI once on disk and validate before allowing any user-data mutation.
+internal fun withValidatedRestoreArchive(
+    input: java.io.InputStream,
+    cacheDir: File,
+    filesDir: File,
+    protectedFilesDir: File,
+    apply: (File) -> Unit,
+) {
+    val snapshot = File.createTempFile("keynova-restore-", ".zip", cacheDir)
+    try {
+        try {
+            snapshot.outputStream().use { input.copyTo(it) }
+            // ZipInputStream alone accepts a truncated/missing central directory.
+            java.util.zip.ZipFile(snapshot).use { }
+            var usable = false
+            val settings = mutableSetOf<String>()
+            ZipInputStream(snapshot.inputStream().buffered()).use { zip ->
+                var entry = zip.nextEntry
+                val buffer = ByteArray(8192)
+                while (entry != null) {
+                    val current = entry
+                    val isProtected = current.name.startsWith("unprotected/")
+                    val name = if (isProtected) current.name.removePrefix("unprotected/") else current.name
+                    val base = if (isProtected) protectedFilesDir else filesDir
+                    require((current.isDirectory && isProtected && name.isEmpty()) ||
+                        isSafeRestorePath(base, name))
+                    if (!current.isDirectory) {
+                        if (!isProtected && (name == PREFS_FILE_NAME || name == PROTECTED_PREFS_FILE_NAME)) {
+                            require(settings.add(name))
+                            parseSettingsLines(String(zip.readBytes(), Charsets.UTF_8).split("\n"))
+                            usable = true
+                        } else {
+                            val allowed = (!isProtected && name == Database.NAME) ||
+                                backupFilePatterns.any { name.matches(it) }
+                            var bytes = 0L
+                            var count = zip.read(buffer)
+                            while (count != -1) {
+                                bytes += count
+                                count = zip.read(buffer)
+                            }
+                            if (allowed && bytes > 0) usable = true
+                        }
+                    }
+                    zip.closeEntry() // validates CRC, including ignored entries
+                    entry = zip.nextEntry
+                }
+            }
+            require(usable)
+        } catch (_: Exception) {
+            // Do not expose paths, settings, ZIP entry names or parser messages.
+            throw IllegalArgumentException("Invalid or unusable backup archive")
+        }
+        apply(snapshot)
+    } finally {
+        snapshot.delete() // Delete only the snapshot owned by this operation.
+    }
+}
+
+private fun isSafeRestorePath(baseDir: File, entryName: String): Boolean {
+    if (entryName.startsWith("/") || entryName.isEmpty()) return false
+    val base = baseDir.canonicalFile
+    val target = File(baseDir, entryName).canonicalFile
+    return target.path.startsWith(base.path + File.separator)
+}
+'''
+mutation_start = b.index("                filesChanged = true\n")
+mutation_end = b.index('                }\n                } ?: error("Backup source unavailable")', mutation_start)
+b = b[:mutation_start] + "".join("        " + line if line.strip() else line for line in b[mutation_start:mutation_end].splitlines(keepends=True)) + b[mutation_end:]
+b = replace_once(b, r'''                                        if (!restoreEntryToDir(zip, filesDir, entry.name)) {
+                                            Log.w("AdvancedScreen", "skipping unsafe backup entry ${entry.name}")
+                                        }
+                                        anyMatch = true''', r'''                                        anyMatch = restoreEntryToDir(zip, filesDir, entry.name) || anyMatch''', 'K01 only count restored normal files')
+b = replace_once(b, '                withValidatedRestoreArchive(input,', '                    withValidatedRestoreArchive(input,', 'K01 indent archive boundary')
+b = replace_once(b, '                }\n                } ?: error("Backup source unavailable")', '                    }\n                } ?: error("Backup source unavailable")', 'K01 indent archive close')
+zip_start = b.index('                            ZipInputStream(snapshot.inputStream().buffered())')
+zip_end = b.index('                        if (!anyMatch)', zip_start)
+b = b[:zip_start] + "".join(line[4:] if line.strip() else line for line in b[zip_start:zip_end].splitlines(keepends=True)) + b[zip_end:]
+backup.write_text(b, encoding="utf-8")

@@ -17,6 +17,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.text.InputType;
+import android.text.Spanned;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -45,6 +46,7 @@ final class VoiceInputController {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final VoiceDictationSession session;
     @Nullable private InputConnection targetConnection;
+    @Nullable private EditorInfo targetEditor;
     @Nullable private VoiceTextBuffer textBuffer;
     @Nullable private Locale selectedLocale;
     @Nullable private VoiceListeningIndicator indicator;
@@ -53,8 +55,11 @@ final class VoiceInputController {
     private int targetType;
     private boolean recreating;
     private boolean writing;
+    private boolean compositionVerificationFailed;
     private String partial = "";
     private int uiRevision;
+    private final Runnable restartAfterWrite = () -> onInputStarted(true);
+    private final Runnable finishAfterWrite = this::onInputFinished;
     private final Runnable recreationTimeout = () -> { recreating = false; stop(); };
 
     VoiceInputController(LatinIME ime) {
@@ -70,24 +75,44 @@ final class VoiceInputController {
             @Override public boolean valid() { return isTargetActive() && textBuffer != null && textBuffer.valid(); }
             @Override public boolean append(String phrase) {
                 writing = true;
-                try { return textBuffer != null && textBuffer.append(phrase); }
-                finally {
+                boolean accepted = false;
+                try {
+                    accepted = textBuffer != null && textBuffer.append(phrase);
+                    return accepted;
+                } finally {
                     writing = false;
-                    // Keep upstream caches aligned, without starting recorrection
-                    // over immutable dictated words during the next session.
-                    syncInputLogic();
+                    // Never finish upstream composing state after a rejected commit.
+                    if (accepted) syncInputLogic();
                 }
             }
-            @Override public void partial(String phrase) { partial = phrase; refreshView(); }
+            @Override public void partial(String phrase) {
+                // Hypotheses are displayed inside the active editor, never
+                // as a message draft in the suggestion/toolbar strip.
+                if (!phrase.isEmpty() && textBuffer != null) {
+                    writing = true;
+                    boolean accepted;
+                    try { accepted = textBuffer.preview(phrase); }
+                    finally { writing = false; }
+                    if (!accepted) { session.abort(); return; }
+                }
+                partial = "";
+                refreshView();
+            }
             @Override public void state(VoiceDictationSession.State state) {
                 render(state);
                 if (state == VoiceDictationSession.State.ERROR) {
+                    if (textBuffer != null) textBuffer.abandon();
                     recreating = false;
+                    handler.removeCallbacks(restartAfterWrite);
+                    handler.removeCallbacks(finishAfterWrite);
                     handler.removeCallbacks(recreationTimeout);
                     targetConnection = null;
+                    targetEditor = null;
                     textBuffer = null;
                     selectedLocale = null;
-                    message("توقف الإملاء لحماية النص أو لخطأ في خدمة الصوت؛ اضغط للمحاولة");
+                    message(compositionVerificationFailed
+                            ? "توقف الإملاء لتعذر إثبات ملكية النص المؤقت؛ حُفظ النص دون استبدال"
+                            : "توقف الإملاء لحماية النص أو لخطأ في خدمة الصوت؛ اضغط للمحاولة");
                 }
             }
             @Override public void rms(float level) { if (indicator != null) indicator.setRms(level); }
@@ -113,7 +138,9 @@ final class VoiceInputController {
             return;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(ime)) { message("لا تتوفر خدمة تعرف صوتي"); return; }
+        compositionVerificationFailed = false;
         targetConnection = connection;
+        targetEditor = editor;
         targetPackage = editor.packageName;
         targetField = editor.fieldId;
         targetType = editor.inputType;
@@ -127,10 +154,25 @@ final class VoiceInputController {
             @Override public boolean append(String text) {
                 return isTargetActive() && targetConnection.commitText(text, 1);
             }
+            @Override public boolean compose(String text) {
+                return isTargetActive() && targetConnection.setComposingText(text, 1);
+            }
+            @Override public boolean canPreview() {
+                if (!isTargetActive()) return false;
+                CharSequence surrounding = styledBeforeCursor(VoiceTextBuffer.CONTEXT);
+                ExtractedText extracted = styledExtraction();
+                return surrounding instanceof Spanned || extracted != null && extracted.text instanceof Spanned;
+            }
+            @Override public boolean ownsComposition(int start, int end) {
+                boolean owned = ownsCurrentComposition(start, end);
+                if (!owned) compositionVerificationFailed = true;
+                return owned;
+            }
         });
         if (!textBuffer.valid()) {
             message("لا يدعم الحقل التحقق من موضع النص بأمان");
             targetConnection = null;
+            targetEditor = null;
             textBuffer = null;
             return;
         }
@@ -215,25 +257,128 @@ final class VoiceInputController {
     }
 
     private boolean isTargetActive() {
-        return targetConnection != null && targetConnection == ime.getCurrentInputConnection()
-                && sameField(ime.getCurrentInputEditorInfo());
+        if (targetConnection == null) return false;
+        EditorInfo info = ime.getCurrentInputEditorInfo();
+        if (!sameField(info) || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && ime.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED)) return false;
+        InputConnection current = ime.getCurrentInputConnection();
+        if (current == targetConnection) return true;
+        // A wrapper may change without changing the active editor. Never infer
+        // this from matching text alone: require the original EditorInfo object,
+        // a concrete field ID and the exact absolute caret/context checkpoint.
+        // A different editor, ambiguous ID or changed selection fails closed.
+        if (current == null || info != targetEditor || targetField <= 0
+                || textBuffer == null || !textBuffer.matchesSnapshot(readSnapshotFrom(current))) return false;
+        targetConnection = current;
+        Log.i(TAG, "rebound verified InputConnection for existing editor");
+        return true;
     }
 
-    /** No cursor-relative deletion, selected-text replacement or composing span.
-     * If an editor cannot provide a collapsed absolute selection and surrounding
-     * context, voice fails closed rather than guessing where its words belong. */
+    /** The only mutable text is a bounded, verified Android composing span.
+     * A moved caret or changed editor fails closed; finalized text is immutable. */
     @Nullable private VoiceTextBuffer.Snapshot readSnapshot() {
         if (!isTargetActive()) return null;
+        return readSnapshotFrom(targetConnection);
+    }
+
+    @Nullable private VoiceTextBuffer.Snapshot readSnapshotFrom(InputConnection connection) {
         ExtractedTextRequest request = new ExtractedTextRequest();
         request.hintMaxChars = 2 * VoiceTextBuffer.CONTEXT;
-        ExtractedText extracted = targetConnection.getExtractedText(request, 0);
+        ExtractedText extracted = connection.getExtractedText(request, 0);
         if (extracted == null || extracted.selectionStart < 0
-                || extracted.selectionStart != extracted.selectionEnd || extracted.startOffset < 0) return null;
-        CharSequence before = targetConnection.getTextBeforeCursor(VoiceTextBuffer.CONTEXT, 0);
-        CharSequence after = targetConnection.getTextAfterCursor(VoiceTextBuffer.CONTEXT, 0);
+                || extracted.selectionStart != extracted.selectionEnd || extracted.startOffset < 0
+                || (long) extracted.startOffset + extracted.selectionStart > Integer.MAX_VALUE) return null;
+        CharSequence before = connection.getTextBeforeCursor(VoiceTextBuffer.CONTEXT, 0);
+        CharSequence after = connection.getTextAfterCursor(VoiceTextBuffer.CONTEXT, 0);
         if (before == null || after == null) return null;
         return new VoiceTextBuffer.Snapshot(extracted.startOffset + extracted.selectionStart,
                 before.toString(), after.toString());
+    }
+
+    /** A full styled extraction is a second optional metadata channel. Delta
+     * updates or invalid offsets cannot authorize replacement of any range. */
+    @Nullable private ExtractedText styledExtraction() {
+        if (!isTargetActive()) return null;
+        ExtractedTextRequest request = new ExtractedTextRequest();
+        request.flags = InputConnection.GET_TEXT_WITH_STYLES;
+        request.hintMaxChars = 2 * VoiceTextBuffer.CONTEXT;
+        final ExtractedText result;
+        try { result = targetConnection.getExtractedText(request, 0); }
+        catch (RuntimeException unavailable) { return null; }
+        if (result == null || result.text == null || result.startOffset < 0
+                || result.partialStartOffset != -1 || result.partialEndOffset != -1
+                || result.selectionStart < 0 || result.selectionStart != result.selectionEnd
+                || result.selectionEnd > result.text.length()
+                || (long) result.startOffset + result.selectionEnd > Integer.MAX_VALUE) return null;
+        return result;
+    }
+
+    @Nullable private CharSequence styledBeforeCursor(int length) {
+        if (!isTargetActive()) return null;
+        try { return targetConnection.getTextBeforeCursor(length, InputConnection.GET_TEXT_WITH_STYLES); }
+        catch (RuntimeException unavailable) { return null; }
+    }
+
+    // -1: channel supplies no composing marker; 0: contradictory ownership;
+    // 1: all supplied composing markers identify precisely the owned range.
+    private static int compositionEvidence(CharSequence text, int offset, int start, int end) {
+        if (!(text instanceof Spanned)) return -1;
+        Spanned spans = (Spanned) text;
+        boolean found = false;
+        for (Object span : spans.getSpans(0, spans.length(), Object.class)) {
+            if ((spans.getSpanFlags(span) & Spanned.SPAN_COMPOSING) == 0) continue;
+            if ((long) offset + spans.getSpanStart(span) != start
+                    || (long) offset + spans.getSpanEnd(span) != end) return 0;
+            found = true;
+        }
+        return found ? 1 : -1;
+    }
+
+    @Nullable private CharSequence styledAfterCursor() {
+        if (!isTargetActive()) return null;
+        try { return targetConnection.getTextAfterCursor(1, InputConnection.GET_TEXT_WITH_STYLES); }
+        catch (RuntimeException unavailable) { return null; }
+    }
+
+    private boolean ownsCurrentComposition(int start, int end) {
+        if (!isTargetActive() || start < 0 || end <= start || end - start > 4096) return false;
+        // Include preceding context: a span cropped to just the hypothesized
+        // suffix cannot prove that foreign composition did not begin earlier.
+        CharSequence surrounding = styledBeforeCursor(Math.min(4096, end));
+        int offset = surrounding == null ? -1 : end - surrounding.length();
+        int nearby = offset < 0 || start < offset ? -1
+                : compositionEvidence(surrounding, offset, start, end);
+        if (nearby == 0) return false;
+        CharSequence plain = targetConnection.getTextBeforeCursor(end - start, 0);
+        CharSequence after = targetConnection.getTextAfterCursor(VoiceTextBuffer.CONTEXT, 0);
+        if (after == null) return false;
+        if (nearby == 1) {
+            CharSequence range = surrounding.subSequence(start - offset, surrounding.length());
+            if (plain == null || !range.toString().contentEquals(plain)) return false;
+            if (offset == start && start > 0) nearby = -1; // left edge may be clipped
+            if (after.length() > 0) {
+                CharSequence styledAfter = styledAfterCursor();
+                if (!(styledAfter instanceof Spanned) || styledAfter.length() == 0) nearby = -1;
+                else {
+                    Spanned spans = (Spanned) styledAfter;
+                    for (Object span : spans.getSpans(0, spans.length(), Object.class))
+                        if ((spans.getSpanFlags(span) & Spanned.SPAN_COMPOSING) != 0) return false;
+                }
+            }
+        }
+        ExtractedText extracted = styledExtraction();
+        if (extracted == null || !(extracted.text instanceof Spanned)) return nearby == 1;
+        long caret = (long) extracted.startOffset + extracted.selectionStart;
+        long windowEnd = (long) extracted.startOffset + extracted.text.length();
+        if (caret != end || start < extracted.startOffset || end > windowEnd) return false;
+        CharSequence range = extracted.text.subSequence(start - extracted.startOffset, end - extracted.startOffset);
+        if (plain == null || !range.toString().contentEquals(plain)) return false;
+        int alternate = compositionEvidence(extracted.text, extracted.startOffset, start, end);
+        if (alternate == 0) return false;
+        if ((start == extracted.startOffset && start > 0) || (end == windowEnd && after.length() > 0))
+            alternate = -1; // exact markers at a cropped boundary are insufficient
+        return nearby == 1 || alternate == 1;
     }
 
     private void syncInputLogic() {
@@ -249,8 +394,14 @@ final class VoiceInputController {
     /** Return true to bypass recorrection while voice owns the editor. */
     boolean onUpdateSelection() {
         if (!session.isEnabled()) return false;
-        if (!writing && (textBuffer == null || !isTargetActive() || !textBuffer.valid())) session.abort();
-        syncInputLogic();
+        // commitText / setComposingText can dispatch selection synchronously before
+        // the new anchor has been checked. Finishing upstream input here can
+        // interfere with the in-flight commit; synchronize once after append.
+        if (writing) return true;
+        if (textBuffer == null || !isTargetActive() || !textBuffer.valid()) {
+            session.abort();
+            return false; // Let upstream process the selection after voice abort.
+        }
         return true;
     }
 
@@ -264,10 +415,27 @@ final class VoiceInputController {
 
     void onInputStarted(boolean restarting) {
         if (!session.isEnabled()) return;
-        if (!recreating || !restarting || !sameField(ime.getCurrentInputEditorInfo())) { stop(); return; }
-        targetConnection = ime.getCurrentInputConnection();
-        if (textBuffer == null || !textBuffer.valid()) { session.abort(); return; }
-        // Resume only when the input VIEW is ready, not in a hidden editor.
+        if (!restarting || targetField <= 0 || !sameField(ime.getCurrentInputEditorInfo())) {
+            session.abort();
+            return;
+        }
+        // The composing write has not published its checkpoint yet. Validate
+        // once it returns, never against an intermediate caret/context.
+        if (writing) {
+            handler.removeCallbacks(restartAfterWrite);
+            handler.post(restartAfterWrite);
+            return;
+        }
+        if (!isTargetActive() || textBuffer == null || !textBuffer.valid()) {
+            session.abort();
+            return;
+        }
+        // Exact connection continuity also authorizes a fresh EditorInfo.
+        // If BOTH objects changed, isTargetActive fails closed: matching field
+        // metadata and text alone are not a stable editor-identity proof.
+        targetEditor = ime.getCurrentInputEditorInfo();
+        // An ordinary verified restart retains the current recognizer and owned
+        // composition. A finish/recreation stays paused until the view is ready.
     }
 
     void onInputViewStarted() {
@@ -282,14 +450,29 @@ final class VoiceInputController {
         refreshView();
     }
 
-    void onInputFinished() { if (!recreating) stop(); }
+    void onInputFinished() {
+        if (!session.isEnabled() || recreating) return;
+        if (writing) {
+            handler.removeCallbacks(finishAfterWrite);
+            handler.post(finishAfterWrite);
+            return;
+        }
+        // Finish can precede a restart of the same field. Release audio now;
+        // the unchanged bounded timeout and verified start/view decide resumption.
+        suspendForRecreation();
+    }
+
+    void onWindowHidden() { stop(); }
     boolean isEnabled() { return session.isEnabled(); }
 
     void stop() {
+        handler.removeCallbacks(restartAfterWrite);
+        handler.removeCallbacks(finishAfterWrite);
         recreating = false;
         handler.removeCallbacks(recreationTimeout);
         session.stop();
         targetConnection = null;
+        targetEditor = null;
         textBuffer = null;
         selectedLocale = null;
     }

@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - heliboard-inline-voice-v1
+      - keynova-voice-p0-repair
     paths:
       - heliboard-inline-voice/**
       - .github/workflows/heliboard-inline-voice.yml
@@ -133,6 +134,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Verify sixty-second dictation regression in isolation
+        working-directory: heliboard-source
+        run: ./gradlew :app:testDebugUnitTest --tests 'helium314.keyboard.latin.VoiceDictationSessionTest.fiveSpeechPauseResumeCyclesPreserveEarlierFinals' --stacktrace
+      - name: Verify changed-editor safety regression in isolation
+        working-directory: heliboard-source
+        run: ./gradlew :app:testDebugUnitTest --tests 'helium314.keyboard.latin.VoiceInputControllerTest.changedEditorDoesNotReceiveOldTranscript' --stacktrace
+      - name: Run all voice JVM regression classes
+        working-directory: heliboard-source
+        run: |
+          ./gradlew :app:testDebugUnitTest \
+            --tests 'helium314.keyboard.latin.VoiceInputControllerTest' \
+            --tests 'helium314.keyboard.latin.VoiceDictationSessionTest' \
+            --tests 'helium314.keyboard.latin.VoiceTextBufferTest' --stacktrace
       - name: Run available debug JVM unit tests
         id: unit_tests
         continue-on-error: true

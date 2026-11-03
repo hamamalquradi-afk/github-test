@@ -66,11 +66,12 @@ latin = (app / "src/main/java/helium314/keyboard/latin/LatinIME.java").read_text
 assert "mInlineVoiceInput.toggle(" in latin
 assert "mRichImm.switchToShortcutIme(this)" not in latin
 voice = (overlay / "VoiceInputController.java").read_text()
-# Partials are UI-owned buffers; finalized phrases are append-only. Never
-# regress to cursor-relative deletion or editor-owned composing replacements.
+# Only the current verified composing span is mutable. Sealed phrases remain
+# append-only; never reintroduce cursor-relative deletion or selection changes.
 assert "RecognizerIntent.EXTRA_PARTIAL_RESULTS, true" in voice
 assert "listener.partial(bestResult(results))" in voice
-assert ".setComposingText(" not in voice
+assert "targetConnection.setComposingText(text, 1)" in voice
+assert "ownsComposition(composingStart" not in voice  # checks live in VoiceTextBuffer
 assert ".deleteSurroundingText(" not in voice and ".setSelection(" not in voice
 assert "getExtractedText(request, 0)" in voice
 assert "extracted.selectionStart != extracted.selectionEnd" in voice
@@ -83,9 +84,12 @@ assert "++generation;" in manager and "cancelRestart()" in manager
 assert "Math.min(30000" in manager and "60000" in manager
 assert "hypothesis = value;" in manager and "host.append(phrase)" in manager
 buffer = (overlay / "VoiceTextBuffer.java").read_text()
-assert ".deleteSurroundingText(" not in buffer and ".setComposingText(" not in buffer
-assert "expected.same(editor.snapshot())" in buffer
-assert "editor.finishComposing()" in buffer and "after.cursor != before.cursor + insertion.length()" in buffer
+assert ".deleteSurroundingText(" not in buffer and ".setSelection(" not in buffer
+assert "editor.compose(inserted)" in buffer and "editor.ownsComposition(" in buffer
+assert "matchesSnapshot(editor.snapshot())" in buffer and "expected.same(snapshot)" in buffer
+assert "String inserted = insertion(" in buffer and "String suffix =" not in buffer
+assert "textBuffer.matchesSnapshot(readSnapshotFrom(current))" in voice
+assert "editor.finishComposing()" in buffer and "after.cursor != before.cursor + inserted.length()" in buffer
 assert "indicator.setRms(level)" in voice and "indicator.setTranscript(partial)" in voice
 assert "new VoiceListeningIndicator(ime, () -> toggle(null))" in voice
 for lifecycle in ("suspendForRecreation()", "onInputStarted(restarting)", "onInputViewStarted()", "onUpdateSelection()"):
@@ -104,7 +108,18 @@ for variant in ("debug", "themes"):
                for n in test_manifest.findall("instrumentation"))
     assert (app / f"src/{variant}/java/helium314/keyboard/latin/VoiceSmokeInstrumentation.java").read_bytes() == (
         overlay / "voice/debug/VoiceSmokeInstrumentation.java").read_bytes()
-print("PASS: append-only speech boundaries; session-managed mic/recreation; RMS waveform; both voice instrumentations")
+print("PASS: verified live composition; append-only sealed text; session-managed mic; both real-editor tests")
+# Candidate count is persistent and affects only the existing suggestion strip.
+suggestion_view = (app / "src/main/java/helium314/keyboard/latin/suggestions/SuggestionStripView.kt").read_text()
+correction_screen = (app / "src/main/java/helium314/keyboard/settings/screens/TextCorrectionScreen.kt").read_text()
+assert "HorizontalScrollView" in suggestion_view and "showKeynovaSuggestions" in suggestion_view
+assert "keynova_suggestion_count" in suggestion_view and "keynova_suggestion_count" in correction_screen
+assert 'getString("keynova_suggestion_count", "10")' in suggestion_view
+for qualifier in ("values", "values-ar"):
+    resource = app / "src/main/res" / qualifier / "keynova_suggestions.xml"
+    assert resource.exists()
+    assert ET.parse(resource).getroot().find("string").get("name") == "keynova_suggestion_count"
+print("PASS: scrollable suggestions 5/7/10 with persisted default 10, bilingual settings")
 
 # Both existing package variants must retain the approved bilingual text identity.
 for variant in ("debug", "themes"):
@@ -170,3 +185,69 @@ for variant in ('debug', 'themes'):
         assert source.read_bytes() == (overlay / 'themes/debug' / name).read_bytes(), (variant, name)
 assert 'java.srcDir("src/debug/java")' not in gradle
 print('PASS: both minified variants package their own Kotlin instrumentation and manifest')
+
+# K02: production restore must stage both files and preflight them before edits.
+backup = (app / 'src/main/java/helium314/keyboard/settings/preferences/BackupRestorePreference.kt').read_text()
+restore = backup[backup.index('private fun restoreLauncher('):backup.index('@Suppress("UNCHECKED_CAST")')]
+entry_loop = restore[restore.index('while (entry != null)'):restore.index('if (!anyMatch)')]
+assert 'settingsFiles[entry.name] =' in entry_loop
+assert '.edit' not in entry_loop and 'readJsonLinesToSettings' not in backup
+assert restore.index('restoreSettingsFiles(settingsFiles,') > restore.index('if (!anyMatch)')
+assert 'if (preferencesChanged) {' in restore
+assert 'if (!restoreSucceeded) {' in restore and 'return@filePicker' in restore
+helper = backup[backup.index('internal fun restoreSettingsFiles('):backup.index('private fun restoreEntryToDir(')]
+assert helper.index('val parsed = files.mapValues') < helper.index('beforeApply()') < helper.index('target.edit {')
+for check in ('parseSettingsLines(lines)', 'require(input.size == sections.size * 2)',
+              'require(seen == sections)', 'primitive.isString', 'it.isFinite()',
+              'Invalid settings backup: $name'):
+    assert check in helper, check
+regression = app / 'src/test/java/helium314/keyboard/BackupRestoreValidationTest.kt'
+assert regression.read_bytes() == (overlay / 'themes/tests/BackupRestoreValidationTest.kt').read_bytes()
+assert 'restoreSettingsFiles(' in regression.read_text()
+print('PASS: K02 staged settings validation, guarded rollback and production regression test installed')
+
+# K01: restoreLauncher must use the one validated disk snapshot before mutations.
+assert 'withValidatedRestoreArchive(input, ctx.cacheDir, filesDir, deviceProtectedFilesDir)' in restore
+assert restore.index('withValidatedRestoreArchive(') < restore.index('filesDir.renameTo(filesDir2)')
+assert 'ZipInputStream(snapshot.inputStream().buffered())' in restore
+assert restore.count('openInputStream(uri)') == 1
+assert 'if (filesChanged) {' in restore
+assert 'anyMatch = restoreEntryToDir(zip, deviceProtectedFilesDir, adjustedName) || anyMatch' in restore
+assert 'anyMatch = restoreEntryToDir(zip, filesDir, entry.name) || anyMatch' in restore
+assert 'if (entry.isDirectory)' in restore
+archive_helper = backup[backup.index('internal fun withValidatedRestoreArchive('):]
+assert archive_helper.index('require(usable)') < archive_helper.index('apply(snapshot)')
+for check in ('input.copyTo(it)', 'java.util.zip.ZipFile(snapshot)', 'parseSettingsLines(',
+              'isSafeRestorePath(base, name)', 'zip.closeEntry()', 'snapshot.delete()',
+              'Invalid or unusable backup archive'):
+    assert check in archive_helper, check
+archive_test = app / 'src/test/java/helium314/keyboard/BackupRestoreArchiveValidationTest.kt'
+assert archive_test.read_bytes() == (overlay / 'themes/tests/BackupRestoreArchiveValidationTest.kt').read_bytes()
+print('PASS: K01 disk snapshot preflight precedes original data mutation; archive regressions installed')
+
+# K03: editor restart is distinct from a real window hide, and observes the
+# framework's current EditorInfo only after the internal super callback.
+assert 'super.onStartInput(editorInfo, restarting);\n        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputStarted(restarting);' in latin
+assert 'mInlineVoiceInput.onWindowHidden();\n        super.onWindowHidden();' in latin
+assert 'void onWindowHidden() { stop(); }' in voice
+assert 'if (!recreating || !restarting' not in voice
+assert 'handler.post(restartAfterWrite)' in voice and 'handler.removeCallbacks(restartAfterWrite)' in voice
+assert 'targetField <= 0' in voice and 'textBuffer.valid()' in voice
+integration = app / 'src/test/java/helium314/keyboard/latin/VoiceInputControllerIntegrationTest.java'
+assert integration.read_bytes() == (overlay / 'VoiceInputControllerIntegrationTest.java').read_bytes()
+print('PASS: K03 verified restart, hard window-hide boundary and real-editor integration tests installed')
+
+# K04: optional metadata channels do not substitute for the mandatory position
+# checkpoint, and no composing replacement is authorized by text equality alone.
+for check in ('styledExtraction()', 'request.flags = InputConnection.GET_TEXT_WITH_STYLES',
+              'result.partialStartOffset != -1', 'result.partialEndOffset != -1',
+              'result.selectionEnd > result.text.length()', 'compositionEvidence(',
+              'Math.min(4096, end)', 'if (alternate == 0) return false;',
+              'range.toString().contentEquals(plain)', 'compositionVerificationFailed'):
+    assert check in voice, check
+assert 'default boolean canPreview()' in buffer
+preview = buffer[buffer.index('boolean preview(String phrase)'):buffer.index('boolean append(String phrase)')]
+assert preview.index('if (!valid()) return false;') < preview.index('if (!editor.canPreview()) return true;') < preview.index('editor.compose(inserted)')
+compatibility = app / 'src/test/java/helium314/keyboard/latin/VoiceCompositionCompatibilityTest.java'
+assert compatibility.read_bytes() == (overlay / 'VoiceCompositionCompatibilityTest.java').read_bytes()
+print('PASS: K04 full styled extraction, bounded owned ranges and safe final-only compatibility tests installed')
