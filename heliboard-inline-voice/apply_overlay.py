@@ -266,7 +266,7 @@ for row in ("keys", "keys2"):
         f"        assertEquals(10, {row}[2].count {{ !it.isSpacer }})",
         "German key count excluding alignment spacers " + row)
 parser_test.write_text(test_source, encoding="utf-8")
-for name in ("VoiceInputControllerTest.java", "VoiceInputControllerIntegrationTest.java", "VoiceDictationSessionTest.java", "VoiceTextBufferTest.java"):
+for name in ("VoiceInputControllerTest.java", "VoiceInputControllerIntegrationTest.java", "VoiceCompositionCompatibilityTest.java", "VoiceDictationSessionTest.java", "VoiceTextBufferTest.java"):
     shutil.copy2(overlay / name, root / "app/src/test/java/helium314/keyboard/latin" / name)
 
 print("Patched pinned HeliBoard source in", root)

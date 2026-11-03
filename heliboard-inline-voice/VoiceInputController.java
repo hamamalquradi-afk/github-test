@@ -55,6 +55,7 @@ final class VoiceInputController {
     private int targetType;
     private boolean recreating;
     private boolean writing;
+    private boolean compositionVerificationFailed;
     private String partial = "";
     private int uiRevision;
     private final Runnable restartAfterWrite = () -> onInputStarted(true);
@@ -109,7 +110,9 @@ final class VoiceInputController {
                     targetEditor = null;
                     textBuffer = null;
                     selectedLocale = null;
-                    message("توقف الإملاء لحماية النص أو لخطأ في خدمة الصوت؛ اضغط للمحاولة");
+                    message(compositionVerificationFailed
+                            ? "توقف الإملاء لتعذر إثبات ملكية النص المؤقت؛ حُفظ النص دون استبدال"
+                            : "توقف الإملاء لحماية النص أو لخطأ في خدمة الصوت؛ اضغط للمحاولة");
                 }
             }
             @Override public void rms(float level) { if (indicator != null) indicator.setRms(level); }
@@ -135,6 +138,7 @@ final class VoiceInputController {
             return;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(ime)) { message("لا تتوفر خدمة تعرف صوتي"); return; }
+        compositionVerificationFailed = false;
         targetConnection = connection;
         targetEditor = editor;
         targetPackage = editor.packageName;
@@ -153,20 +157,16 @@ final class VoiceInputController {
             @Override public boolean compose(String text) {
                 return isTargetActive() && targetConnection.setComposingText(text, 1);
             }
+            @Override public boolean canPreview() {
+                if (!isTargetActive()) return false;
+                CharSequence surrounding = styledBeforeCursor(VoiceTextBuffer.CONTEXT);
+                ExtractedText extracted = styledExtraction();
+                return surrounding instanceof Spanned || extracted != null && extracted.text instanceof Spanned;
+            }
             @Override public boolean ownsComposition(int start, int end) {
-                if (!isTargetActive() || end <= start) return false;
-                // Require the exact Android composing span, not merely a
-                // visually identical suffix that might be previously sealed.
-                CharSequence styled = targetConnection.getTextBeforeCursor(
-                        Math.min(4096, end - start), InputConnection.GET_TEXT_WITH_STYLES);
-                if (!(styled instanceof Spanned) || styled.length() != end - start) return false;
-                Spanned spans = (Spanned) styled;
-                for (Object span : spans.getSpans(0, spans.length(), Object.class)) {
-                    if ((spans.getSpanFlags(span) & Spanned.SPAN_COMPOSING) != 0
-                            && spans.getSpanStart(span) == 0
-                            && spans.getSpanEnd(span) == spans.length()) return true;
-                }
-                return false;
+                boolean owned = ownsCurrentComposition(start, end);
+                if (!owned) compositionVerificationFailed = true;
+                return owned;
             }
         });
         if (!textBuffer.valid()) {
@@ -287,12 +287,98 @@ final class VoiceInputController {
         request.hintMaxChars = 2 * VoiceTextBuffer.CONTEXT;
         ExtractedText extracted = connection.getExtractedText(request, 0);
         if (extracted == null || extracted.selectionStart < 0
-                || extracted.selectionStart != extracted.selectionEnd || extracted.startOffset < 0) return null;
+                || extracted.selectionStart != extracted.selectionEnd || extracted.startOffset < 0
+                || (long) extracted.startOffset + extracted.selectionStart > Integer.MAX_VALUE) return null;
         CharSequence before = connection.getTextBeforeCursor(VoiceTextBuffer.CONTEXT, 0);
         CharSequence after = connection.getTextAfterCursor(VoiceTextBuffer.CONTEXT, 0);
         if (before == null || after == null) return null;
         return new VoiceTextBuffer.Snapshot(extracted.startOffset + extracted.selectionStart,
                 before.toString(), after.toString());
+    }
+
+    /** A full styled extraction is a second optional metadata channel. Delta
+     * updates or invalid offsets cannot authorize replacement of any range. */
+    @Nullable private ExtractedText styledExtraction() {
+        if (!isTargetActive()) return null;
+        ExtractedTextRequest request = new ExtractedTextRequest();
+        request.flags = InputConnection.GET_TEXT_WITH_STYLES;
+        request.hintMaxChars = 2 * VoiceTextBuffer.CONTEXT;
+        final ExtractedText result;
+        try { result = targetConnection.getExtractedText(request, 0); }
+        catch (RuntimeException unavailable) { return null; }
+        if (result == null || result.text == null || result.startOffset < 0
+                || result.partialStartOffset != -1 || result.partialEndOffset != -1
+                || result.selectionStart < 0 || result.selectionStart != result.selectionEnd
+                || result.selectionEnd > result.text.length()
+                || (long) result.startOffset + result.selectionEnd > Integer.MAX_VALUE) return null;
+        return result;
+    }
+
+    @Nullable private CharSequence styledBeforeCursor(int length) {
+        if (!isTargetActive()) return null;
+        try { return targetConnection.getTextBeforeCursor(length, InputConnection.GET_TEXT_WITH_STYLES); }
+        catch (RuntimeException unavailable) { return null; }
+    }
+
+    // -1: channel supplies no composing marker; 0: contradictory ownership;
+    // 1: all supplied composing markers identify precisely the owned range.
+    private static int compositionEvidence(CharSequence text, int offset, int start, int end) {
+        if (!(text instanceof Spanned)) return -1;
+        Spanned spans = (Spanned) text;
+        boolean found = false;
+        for (Object span : spans.getSpans(0, spans.length(), Object.class)) {
+            if ((spans.getSpanFlags(span) & Spanned.SPAN_COMPOSING) == 0) continue;
+            if ((long) offset + spans.getSpanStart(span) != start
+                    || (long) offset + spans.getSpanEnd(span) != end) return 0;
+            found = true;
+        }
+        return found ? 1 : -1;
+    }
+
+    @Nullable private CharSequence styledAfterCursor() {
+        if (!isTargetActive()) return null;
+        try { return targetConnection.getTextAfterCursor(1, InputConnection.GET_TEXT_WITH_STYLES); }
+        catch (RuntimeException unavailable) { return null; }
+    }
+
+    private boolean ownsCurrentComposition(int start, int end) {
+        if (!isTargetActive() || start < 0 || end <= start || end - start > 4096) return false;
+        // Include preceding context: a span cropped to just the hypothesized
+        // suffix cannot prove that foreign composition did not begin earlier.
+        CharSequence surrounding = styledBeforeCursor(Math.min(4096, end));
+        int offset = surrounding == null ? -1 : end - surrounding.length();
+        int nearby = offset < 0 || start < offset ? -1
+                : compositionEvidence(surrounding, offset, start, end);
+        if (nearby == 0) return false;
+        CharSequence plain = targetConnection.getTextBeforeCursor(end - start, 0);
+        CharSequence after = targetConnection.getTextAfterCursor(VoiceTextBuffer.CONTEXT, 0);
+        if (after == null) return false;
+        if (nearby == 1) {
+            CharSequence range = surrounding.subSequence(start - offset, surrounding.length());
+            if (plain == null || !range.toString().contentEquals(plain)) return false;
+            if (offset == start && start > 0) nearby = -1; // left edge may be clipped
+            if (after.length() > 0) {
+                CharSequence styledAfter = styledAfterCursor();
+                if (!(styledAfter instanceof Spanned) || styledAfter.length() == 0) nearby = -1;
+                else {
+                    Spanned spans = (Spanned) styledAfter;
+                    for (Object span : spans.getSpans(0, spans.length(), Object.class))
+                        if ((spans.getSpanFlags(span) & Spanned.SPAN_COMPOSING) != 0) return false;
+                }
+            }
+        }
+        ExtractedText extracted = styledExtraction();
+        if (extracted == null || !(extracted.text instanceof Spanned)) return nearby == 1;
+        long caret = (long) extracted.startOffset + extracted.selectionStart;
+        long windowEnd = (long) extracted.startOffset + extracted.text.length();
+        if (caret != end || start < extracted.startOffset || end > windowEnd) return false;
+        CharSequence range = extracted.text.subSequence(start - extracted.startOffset, end - extracted.startOffset);
+        if (plain == null || !range.toString().contentEquals(plain)) return false;
+        int alternate = compositionEvidence(extracted.text, extracted.startOffset, start, end);
+        if (alternate == 0) return false;
+        if ((start == extracted.startOffset && start > 0) || (end == windowEnd && after.length() > 0))
+            alternate = -1; // exact markers at a cropped boundary are insufficient
+        return nearby == 1 || alternate == 1;
     }
 
     private void syncInputLogic() {

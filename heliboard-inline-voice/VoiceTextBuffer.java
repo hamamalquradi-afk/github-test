@@ -12,6 +12,8 @@ final class VoiceTextBuffer {
         Snapshot snapshot();
         boolean finishComposing();
         boolean append(String text);
+        // A missing styled-text channel requires buffering hypotheses only.
+        default boolean canPreview() { return true; }
         default boolean compose(String text) { return false; }
         default boolean ownsComposition(int start, int end) { return false; }
     }
@@ -86,6 +88,9 @@ final class VoiceTextBuffer {
         if (value.isEmpty()) return true;
         if (!valid()) return false;
         if (composingStart < 0) {
+            // Never publish a provisional phrase into a known final-only editor.
+            // The session retains its latest hypothesis and seals it on final/stop.
+            if (!editor.canPreview()) return true;
             if (!editor.finishComposing() || !valid()) return false;
             Snapshot before = expected;
             String inserted = insertion(before, value);

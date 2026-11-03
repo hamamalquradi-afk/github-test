@@ -237,6 +237,13 @@ public class VoiceInputControllerTest {
         voice.onUpdateSelection(); partial("new"); finish("new");
         assertEquals("Existing: hello hello", text.toString()); assertFalse(voice.isEnabled());
     }
+    @Test public void unavailableStyledMetadataUsesFinalOnlyWithoutPublishingPartial() {
+        when(editor.getTextBeforeCursor(anyInt(), eq(InputConnection.GET_TEXT_WITH_STYLES)))
+                .thenAnswer(call -> text.substring(Math.max(0, model.start - (Integer) call.getArgument(0)), model.start));
+        partial("I can right"); assertEquals("Existing: ", text.toString()); assertTrue(voice.isEnabled());
+        finish("I can write"); assertEquals("Existing: I can write", text.toString());
+        verify(editor, never()).setComposingText(any(CharSequence.class), anyInt());
+    }
     @Test public void ordinaryRestartPreservesEnabledModeAndOwnedPartial() {
         partial("one"); voice.onInputStarted(true); voice.onInputViewStarted();
         assertTrue(voice.isEnabled()); partial("one two"); finish("one two");

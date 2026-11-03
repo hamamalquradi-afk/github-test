@@ -10,7 +10,7 @@ public class VoiceTextBufferTest {
     static final class Editor implements VoiceTextBuffer.Editor {
         final StringBuilder text;
         int start; int end; int composingStart = -1; int composingEnd = -1;
-        int commits; boolean accessible = true; boolean failCommit; boolean failFinish;
+        int commits; boolean previewAllowed = true; boolean accessible = true; boolean failCommit; boolean failFinish;
         Editor(String initial) { text = new StringBuilder(initial); start = end = text.length(); }
         @Override public VoiceTextBuffer.Snapshot snapshot() {
             if (!accessible || start != end) return null;
@@ -30,6 +30,7 @@ public class VoiceTextBufferTest {
             text.replace(from, to, value); start = end = from + value.length();
             composingStart = composingEnd = -1; return true;
         }
+        @Override public boolean canPreview() { return previewAllowed; }
         @Override public boolean compose(String value) {
             if (failCommit) return false;
             int from = composingStart >= 0 ? composingStart : start;
@@ -44,6 +45,21 @@ public class VoiceTextBufferTest {
         }
     }
 
+    @Test public void unsupportedCompositionBuffersWithoutPublishingAndCommitsCorrectedFinal() {
+        Editor editor = new Editor("kept "); editor.previewAllowed = false;
+        VoiceTextBuffer buffer = new VoiceTextBuffer(editor);
+        assertTrue(buffer.preview("I can right")); assertEquals("kept ", editor.text.toString());
+        assertEquals(-1, editor.composingStart); assertEquals(0, editor.commits);
+        assertTrue(buffer.append("I can write")); assertEquals("kept I can write", editor.text.toString());
+    }
+    @Test public void finalOnlyStillRejectsChangedCaretAndFailedFinish() {
+        Editor editor = new Editor("kept "); editor.previewAllowed = false;
+        VoiceTextBuffer buffer = new VoiceTextBuffer(editor);
+        assertTrue(buffer.preview("pending")); editor.start = editor.end = 0;
+        assertFalse(buffer.append("pending")); assertEquals("kept ", editor.text.toString());
+        editor.start = editor.end = editor.text.length(); editor.failFinish = true;
+        assertFalse(buffer.append("pending")); assertEquals(0, editor.commits);
+    }
     @Test public void liveCumulativeHypothesesReplaceOnlyOwnedComposition() {
         Editor editor = new Editor("kept ");
         VoiceTextBuffer buffer = new VoiceTextBuffer(editor);

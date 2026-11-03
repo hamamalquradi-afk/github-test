@@ -236,3 +236,18 @@ assert 'targetField <= 0' in voice and 'textBuffer.valid()' in voice
 integration = app / 'src/test/java/helium314/keyboard/latin/VoiceInputControllerIntegrationTest.java'
 assert integration.read_bytes() == (overlay / 'VoiceInputControllerIntegrationTest.java').read_bytes()
 print('PASS: K03 verified restart, hard window-hide boundary and real-editor integration tests installed')
+
+# K04: optional metadata channels do not substitute for the mandatory position
+# checkpoint, and no composing replacement is authorized by text equality alone.
+for check in ('styledExtraction()', 'request.flags = InputConnection.GET_TEXT_WITH_STYLES',
+              'result.partialStartOffset != -1', 'result.partialEndOffset != -1',
+              'result.selectionEnd > result.text.length()', 'compositionEvidence(',
+              'Math.min(4096, end)', 'if (alternate == 0) return false;',
+              'range.toString().contentEquals(plain)', 'compositionVerificationFailed'):
+    assert check in voice, check
+assert 'default boolean canPreview()' in buffer
+preview = buffer[buffer.index('boolean preview(String phrase)'):buffer.index('boolean append(String phrase)')]
+assert preview.index('if (!valid()) return false;') < preview.index('if (!editor.canPreview()) return true;') < preview.index('editor.compose(inserted)')
+compatibility = app / 'src/test/java/helium314/keyboard/latin/VoiceCompositionCompatibilityTest.java'
+assert compatibility.read_bytes() == (overlay / 'VoiceCompositionCompatibilityTest.java').read_bytes()
+print('PASS: K04 full styled extraction, bounded owned ranges and safe final-only compatibility tests installed')
