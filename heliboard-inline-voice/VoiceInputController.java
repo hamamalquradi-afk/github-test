@@ -57,6 +57,8 @@ final class VoiceInputController {
     private boolean writing;
     private String partial = "";
     private int uiRevision;
+    private final Runnable restartAfterWrite = () -> onInputStarted(true);
+    private final Runnable finishAfterWrite = this::onInputFinished;
     private final Runnable recreationTimeout = () -> { recreating = false; stop(); };
 
     VoiceInputController(LatinIME ime) {
@@ -100,6 +102,8 @@ final class VoiceInputController {
                 if (state == VoiceDictationSession.State.ERROR) {
                     if (textBuffer != null) textBuffer.abandon();
                     recreating = false;
+                    handler.removeCallbacks(restartAfterWrite);
+                    handler.removeCallbacks(finishAfterWrite);
                     handler.removeCallbacks(recreationTimeout);
                     targetConnection = null;
                     targetEditor = null;
@@ -325,11 +329,27 @@ final class VoiceInputController {
 
     void onInputStarted(boolean restarting) {
         if (!session.isEnabled()) return;
-        if (!recreating || !restarting || !sameField(ime.getCurrentInputEditorInfo())) { stop(); return; }
-        targetConnection = ime.getCurrentInputConnection();
+        if (!restarting || targetField <= 0 || !sameField(ime.getCurrentInputEditorInfo())) {
+            session.abort();
+            return;
+        }
+        // The composing write has not published its checkpoint yet. Validate
+        // once it returns, never against an intermediate caret/context.
+        if (writing) {
+            handler.removeCallbacks(restartAfterWrite);
+            handler.post(restartAfterWrite);
+            return;
+        }
+        if (!isTargetActive() || textBuffer == null || !textBuffer.valid()) {
+            session.abort();
+            return;
+        }
+        // Exact connection continuity also authorizes a fresh EditorInfo.
+        // If BOTH objects changed, isTargetActive fails closed: matching field
+        // metadata and text alone are not a stable editor-identity proof.
         targetEditor = ime.getCurrentInputEditorInfo();
-        if (targetField <= 0 || textBuffer == null || !textBuffer.valid()) { session.abort(); return; }
-        // Resume only when the input VIEW is ready, not in a hidden editor.
+        // An ordinary verified restart retains the current recognizer and owned
+        // composition. A finish/recreation stays paused until the view is ready.
     }
 
     void onInputViewStarted() {
@@ -344,10 +364,24 @@ final class VoiceInputController {
         refreshView();
     }
 
-    void onInputFinished() { if (!recreating) stop(); }
+    void onInputFinished() {
+        if (!session.isEnabled() || recreating) return;
+        if (writing) {
+            handler.removeCallbacks(finishAfterWrite);
+            handler.post(finishAfterWrite);
+            return;
+        }
+        // Finish can precede a restart of the same field. Release audio now;
+        // the unchanged bounded timeout and verified start/view decide resumption.
+        suspendForRecreation();
+    }
+
+    void onWindowHidden() { stop(); }
     boolean isEnabled() { return session.isEnabled(); }
 
     void stop() {
+        handler.removeCallbacks(restartAfterWrite);
+        handler.removeCallbacks(finishAfterWrite);
         recreating = false;
         handler.removeCallbacks(recreationTimeout);
         session.stop();

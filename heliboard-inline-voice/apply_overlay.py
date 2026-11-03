@@ -60,9 +60,9 @@ for old, new, label in (
     ("        SettingsValues settingsValues = mSettings.getCurrent();\n        Log.i(TAG, \"onConfigurationChanged\");",
      "        if (mInlineVoiceInput != null) mInlineVoiceInput.suspendForRecreation();\n"
      "        SettingsValues settingsValues = mSettings.getCurrent();\n        Log.i(TAG, \"onConfigurationChanged\");", "voice rotation boundary"),
-    ("        mHandler.onStartInput(editorInfo, restarting);",
-     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputStarted(restarting);\n"
-     "        mHandler.onStartInput(editorInfo, restarting);", "editor identity boundary"),
+    ("        super.onStartInput(editorInfo, restarting);",
+     "        super.onStartInput(editorInfo, restarting);\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputStarted(restarting);", "editor identity boundary"),
     ("        mStatsUtilsManager.onStartInputView();",
      "        mStatsUtilsManager.onStartInputView();\n"
      "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputViewStarted();", "resume recreated input view"),
@@ -70,7 +70,7 @@ for old, new, label in (
      "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputFinished();\n"
      "        super.onFinishInput();", "finish editor boundary"),
     ("        super.onWindowHidden();",
-     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputFinished();\n"
+     "        if (mInlineVoiceInput != null) mInlineVoiceInput.onWindowHidden();\n"
      "        super.onWindowHidden();", "release hidden microphone"),
     ("                composingSpanStart, composingSpanEnd);\n        if (DebugFlags.DEBUG_ENABLED)",
      "                composingSpanStart, composingSpanEnd);\n"
@@ -266,7 +266,7 @@ for row in ("keys", "keys2"):
         f"        assertEquals(10, {row}[2].count {{ !it.isSpacer }})",
         "German key count excluding alignment spacers " + row)
 parser_test.write_text(test_source, encoding="utf-8")
-for name in ("VoiceInputControllerTest.java", "VoiceDictationSessionTest.java", "VoiceTextBufferTest.java"):
+for name in ("VoiceInputControllerTest.java", "VoiceInputControllerIntegrationTest.java", "VoiceDictationSessionTest.java", "VoiceTextBufferTest.java"):
     shutil.copy2(overlay / name, root / "app/src/test/java/helium314/keyboard/latin" / name)
 
 print("Patched pinned HeliBoard source in", root)

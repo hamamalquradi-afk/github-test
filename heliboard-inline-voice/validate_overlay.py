@@ -224,3 +224,15 @@ for check in ('input.copyTo(it)', 'java.util.zip.ZipFile(snapshot)', 'parseSetti
 archive_test = app / 'src/test/java/helium314/keyboard/BackupRestoreArchiveValidationTest.kt'
 assert archive_test.read_bytes() == (overlay / 'themes/tests/BackupRestoreArchiveValidationTest.kt').read_bytes()
 print('PASS: K01 disk snapshot preflight precedes original data mutation; archive regressions installed')
+
+# K03: editor restart is distinct from a real window hide, and observes the
+# framework's current EditorInfo only after the internal super callback.
+assert 'super.onStartInput(editorInfo, restarting);\n        if (mInlineVoiceInput != null) mInlineVoiceInput.onInputStarted(restarting);' in latin
+assert 'mInlineVoiceInput.onWindowHidden();\n        super.onWindowHidden();' in latin
+assert 'void onWindowHidden() { stop(); }' in voice
+assert 'if (!recreating || !restarting' not in voice
+assert 'handler.post(restartAfterWrite)' in voice and 'handler.removeCallbacks(restartAfterWrite)' in voice
+assert 'targetField <= 0' in voice and 'textBuffer.valid()' in voice
+integration = app / 'src/test/java/helium314/keyboard/latin/VoiceInputControllerIntegrationTest.java'
+assert integration.read_bytes() == (overlay / 'VoiceInputControllerIntegrationTest.java').read_bytes()
+print('PASS: K03 verified restart, hard window-hide boundary and real-editor integration tests installed')

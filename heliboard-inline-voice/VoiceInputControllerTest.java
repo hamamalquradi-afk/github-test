@@ -237,6 +237,11 @@ public class VoiceInputControllerTest {
         voice.onUpdateSelection(); partial("new"); finish("new");
         assertEquals("Existing: hello hello", text.toString()); assertFalse(voice.isEnabled());
     }
+    @Test public void ordinaryRestartPreservesEnabledModeAndOwnedPartial() {
+        partial("one"); voice.onInputStarted(true); voice.onInputViewStarted();
+        assertTrue(voice.isEnabled()); partial("one two"); finish("one two");
+        assertEquals("Existing: one two", text.toString());
+    }
     @Test public void viewRecreationPreservesEnabledModeAndReattachesStrip() {
         partial("before"); voice.suspendForRecreation(); voice.refreshView();
         assertTrue(voice.isEnabled()); voice.onInputFinished(); assertTrue(voice.isEnabled());
@@ -244,7 +249,7 @@ public class VoiceInputControllerTest {
         partial("after"); finish("after"); assertEquals("Existing: before after", text.toString());
     }
     @Test public void hiddenKeyboardAndServiceShutdownReleaseUserMode() {
-        partial("saved"); voice.onInputFinished(); voice.destroy(); restart();
+        partial("saved"); voice.onWindowHidden(); voice.destroy(); restart();
         assertFalse(voice.isEnabled()); assertEquals("Existing: saved", text.toString());
     }
     @Test public void punctuationAfterFinalPhraseDoesNotGainLeadingSpace() {
